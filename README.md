@@ -29,8 +29,13 @@ Then use Claude Code as usual. To remove it: `node install.mjs --uninstall`.
 Everything runs on your machine. Your creatures live in `data/state.json`.
 
 - **Your prompts never leave the hook.** The prompt is classified locally into a species key, and only that key is sent to the local server.
-- **When a run ends,** the hook reads the transcript and sends only counts: tool names, file extensions, and the first word of shell commands (`npm`, `git`, `ffmpeg`). It never sends file paths, file contents, command arguments or the conversation.
+- **When a run ends,** the hook reads the transcript and sends only counts: tool names, file extensions from a known list, and the first word of shell commands from a known list (`npm`, `git`, `ffmpeg`). Anything else is sent as `other`. It never sends file paths, file names, file contents, command arguments or the conversation. When `POL_SERVER` points at another machine, MCP tool names are reduced to a family (`mcp__outreach`, `mcp__browser`), so the host never learns which servers you run.
+- The server listens on `127.0.0.1` only. Set `POL_HOST=0.0.0.0` to share it; remote requests then need an operator token to read a collection.
 - The hooks time out in 1.5 seconds and always exit cleanly. They never slow down or break a session, even if the server is off.
+
+## Skills
+
+Every creature feeds operator skills on a 1-99 curve (`skills.js`): Engineering, Debugging, Testing, Shipping, Data, Research, Writing, Design, Video, Outreach and Automation from the tools a run used; Toolsmith, Orchestration, Endurance and Resilience as bonuses; Consistency, Polymath and Night Owl from your days. Runs from before activity tracking count toward the skill of their species. Runs over 4 hours count as 4 hours, and a session left open for more than a day is not counted as machine time.
 
 ## Verify a creature
 
@@ -45,6 +50,7 @@ curl  http://localhost:4855/api/pubkey                       # the signing publi
 |---|---|
 | `POL_PORT` | server port (default 4855) |
 | `POL_DATA_DIR` | where creatures are stored (default `./data`) |
+| `POL_HOST` | listen address (default `127.0.0.1`; `0.0.0.0` to share) |
 | `POL_SERVER`, `POL_TOKEN` | point the hooks at a hosted server instead of localhost |
 | `node server.js --samples` | add sample operators to explore the Board and cross-breeding |
 
@@ -56,6 +62,7 @@ curl  http://localhost:4855/api/pubkey                       # the signing publi
 | `hooks/run-subagent.mjs` | `SubagentStop`: counts subagents |
 | `hooks/run-end.mjs` | `Stop`: reads what the agent did and hatches the creature |
 | `engine.js` | deterministic creature engine (species, rarity, traits, art seed) |
+| `skills.js` | skill curve, bands and xp formulas (shared with the browser as `/skills.js`) |
 | `server.js` | zero-dependency server: signing, storage, API, UI |
 
 ## License

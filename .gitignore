@@ -6,3 +6,5 @@ server.log
 node_modules
 server.err.log
 *.pol-backup-*
+data/*.tmp
+data/*.unreadable-*

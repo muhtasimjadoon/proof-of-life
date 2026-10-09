@@ -6,6 +6,8 @@
 
 'use strict';
 
+const Skills = require('./skills.js');
+
 // ---- deterministic randomness -------------------------------------------
 
 function hashString(str) {
@@ -62,19 +64,25 @@ const NAME_TAIL = ['bble', 'xel', 'tik', 'mo', 'zul', 'nub', 'rix', 'wop', 'dle'
 
 // ---- classification ------------------------------------------------------
 
+// keywords match at the start of a word ('analyz' -> 'analyzing'); short ones
+// (<= 3 letters: 'ui', 'dm', 'api') must be the whole word, so 'admin' is not
+// outreach, 'guide' is not design and 'already' is not research.
+const KEY_RE = new Map();
+function keyRe(k) {
+  let re = KEY_RE.get(k);
+  if (!re) { re = k.length <= 3 ? new RegExp('(^|[^a-z0-9])' + k + '($|[^a-z0-9])') : new RegExp('(^|[^a-z0-9])' + k); KEY_RE.set(k, re); }
+  return re;
+}
 function detectDomain(text) {
   const t = String(text || '').toLowerCase();
   let best = null, bestHits = 0;
   for (const sp of SPECIES) {
     let hits = 0;
-    for (const k of sp.keys) if (t.includes(k)) hits++;
+    for (const k of sp.keys) if (keyRe(k).test(t)) hits++;
     if (hits > bestHits) { bestHits = hits; best = sp.key; }
   }
-  if (best) return best;
-  // no keyword matched — spread deterministically across all species instead of
-  // always defaulting to Wisp (that made every shelf a wall of purple wisps)
-  const keys = SPECIES.map((s) => s.key);
-  return keys[hashString('d|' + t) % keys.length];
+  // no keyword matched: it is general work (Wisp), never a random guess
+  return best || 'wisp';
 }
 
 // What the agent actually did beats what you asked it. activity is the
@@ -93,7 +101,8 @@ function domainFromActivity(activity) {
   const s = { cog: 0, scholar: 0, moth: 0, prism: 0, lumen: 0, hydra: 0, wisp: 0 };
   for (const [name, n] of Object.entries(tools)) {
     const t = name.toLowerCase();
-    if (/linkedin|aimfox|mail|gmail|slack|whatsapp|crm|send_message|hubspot/.test(t)) s.hydra += 3 * n;
+    if (/^(agent|task|workflow|skill)$/.test(t)) s.wisp += 0.5 * n; // orchestration: general
+    else if (/linkedin|aimfox|mail|gmail|slack|whatsapp|crm|send_message|hubspot|outreach/.test(t)) s.hydra += 3 * n;
     else if (/figma|canva|design|penpot/.test(t)) s.prism += 3 * n;
     else if (/remotion|video|higgsfield|youtube/.test(t)) s.lumen += 3 * n;
     else if (/websearch|webfetch|research|search|fetch/.test(t)) s.scholar += 2 * n;
@@ -131,7 +140,22 @@ function durationLabel(ms) {
   if (m < 60) return rs ? `${m}m ${rs}s` : `${m}m`;
   const h = Math.floor(m / 60);
   const rm = m % 60;
-  return rm ? `${h}h ${rm}m` : `${h}h`;
+  if (h < 24) return rm ? `${h}h ${rm}m` : `${h}h`;
+  const d = Math.floor(h / 24), rh = h % 24;
+  return `${d}d` + (rh ? ` ${rh}h` : '') + (rm ? ` ${rm}m` : '');
+}
+
+// a run longer than this is a session left open, not work: it still exists and
+// stays signed, but stats and skills do not count it as machine time
+const OPEN_SESSION_MS = Skills.OPEN_SESSION_MS;
+function isOpenSession(c) { return !!c && !c.bredBy && (c.durationMs || 0) > OPEN_SESSION_MS; }
+
+// local hour of a timestamp. tzOffset follows Date#getTimezoneOffset (UTC - local,
+// minutes); the hooks send the operator's own offset so a UTC host still knows
+// when the operator's night was. Without one, the server's local time is used.
+function localHour(ms, tzOffset) {
+  if (tzOffset == null || !isFinite(tzOffset)) return new Date(ms).getHours();
+  return new Date(ms - tzOffset * 60000).getUTCHours();
 }
 
 function speciesByKey(key) {
@@ -149,12 +173,15 @@ function computeCreature(run) {
   const durationMs = run.durationMs != null
     ? run.durationMs
     : Math.max(0, (run.endedAt || Date.now()) - (run.startedAt || Date.now()));
-  const domainKey = domainFromActivity(run.activity) || run.domainKey || detectDomain(run.prompt);
+  const actDomain = domainFromActivity(run.activity);
+  const domainKey = actDomain || run.domainKey || detectDomain(run.prompt);
+  const domainSource = actDomain ? 'activity' : (run.domainSource || 'prompt');
   const toolCalls = run.activity && run.activity.toolCalls != null ? run.activity.toolCalls : null;
   const species = speciesByKey(domainKey);
   const rarity = rarityFor(durationMs);
   const bornAt = run.endedAt || Date.now();
-  const hour = new Date(bornAt).getHours();
+  const tzo = run.tzOffset != null && isFinite(run.tzOffset) ? Math.max(-840, Math.min(840, Math.round(run.tzOffset))) : null;
+  const hour = localHour(bornAt, tzo);
   const subagents = run.subagents || 0;
   const error = !!run.error;
 
@@ -170,12 +197,13 @@ function computeCreature(run) {
   if (subagents >= 5) traits.push('Swarm');       // you commanded a fleet
   if (error) traits.push('Scarred');              // it survived a failure
 
-  // born sick from a failed run, or occasionally restless — it must be raised back
+  // born sick only from a real failed run. 'Restless' is a seeded temperament,
+  // never a failure, so it no longer makes a creature sick.
   let status = 'healthy';
   let hpMax = 100;
   let hp = 100;
   if (error) { status = 'sick'; hp = 38; }
-  else if (seed % 12 === 0) { status = 'sick'; hp = 55; traits.push('Restless'); }
+  else if (seed % 12 === 0) traits.push('Restless');
 
   const idx = rarity.index;
   const features = {
@@ -204,7 +232,7 @@ function computeCreature(run) {
     palette.overlay = '#6f8f5a'; // sallow tint until healed
   }
 
-  return {
+  const c = {
     id: run.id ? run.id + ':' + bornAt : 'c' + seed.toString(36) + bornAt.toString(36),
     seed,
     level: 1,
@@ -228,15 +256,25 @@ function computeCreature(run) {
     durationMs,
     durationLabel: durationLabel(durationMs),
     domainKey,
+    domainSource,
     toolCalls,
   };
+  // the cleaned activity counts (no file names, no args) so skills can be
+  // recomputed if the formulas change; signed as a hash, see server.js
+  if (run.activity && typeof run.activity === 'object') c.activity = run.activity;
+  if (tzo != null) c.tzo = tzo;
+  c.skillXp = Skills.computeSkillXp(c);
+  c.sxv = Skills.SXV;
+  return c;
 }
 
 // ---- leveling: raise a creature across future successful runs -----------
-// A creature born from a run keeps growing every time you finish another good
-// run. Weak & Sick -> Healing -> Stronger -> Thriving -> Fully Raised Survivor.
-const LEVEL_XP = [0, 100, 250, 500, 900]; // min xp for level (index + 1)
-const LEVEL_LABELS = ['Newborn', 'Growing', 'Stronger', 'Thriving', 'Fully Raised'];
+// A creature keeps growing every time you finish another good run of the SAME
+// kind of work (only its 20 most recent siblings are raised, so levels mean
+// something instead of everything maxing out).
+const LEVEL_XP = [0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700]; // min xp for level (index + 1)
+const LEVEL_LABELS = ['Newborn', 'Growing', 'Stronger', 'Thriving', 'Seasoned', 'Veteran', 'Elder', 'Ancient', 'Exalted', 'Fully Raised'];
+const HERD_WINDOW = 20;
 
 function levelFor(xp) {
   let lvl = 1;
@@ -262,7 +300,7 @@ function xpGain(justCompleted) {
 // a single 0-10 flex number for the Proof of Life Board
 function operatorScore(creatures) {
   if (!creatures.length) return 0;
-  const hours = creatures.reduce((a, c) => a + (c.durationMs || 0), 0) / 3600000;
+  const hours = creatures.reduce((a, c) => a + (isOpenSession(c) ? 0 : (c.durationMs || 0)), 0) / 3600000;
   const rarity = creatures.reduce((a, c) => a + c.rarity.index, 0);
   const survivors = creatures.filter((c) => c.status === 'healed').length;
   const legendary = creatures.filter((c) => c.rarity.index >= 4).length;
@@ -319,6 +357,20 @@ function breedCreature(a, b, handleA, handleB, domain) {
 }
 
 module.exports = {
+  // skills (see skills.js; the browser loads the same file as /skills.js)
+  Skills,
+  xpFor: Skills.xpFor,
+  skillLevelFor: Skills.skillLevelFor,
+  skillTitle: Skills.skillTitle,
+  SKILLS: Skills.SKILLS,
+  SKILL_BANDS: Skills.SKILL_BANDS,
+  computeSkillXp: Skills.computeSkillXp,
+  computeOperatorSkills: Skills.computeOperatorSkills,
+  OPEN_SESSION_MS,
+  isOpenSession,
+  localHour,
+  LEVEL_XP,
+  HERD_WINDOW,
   computeCreature,
   detectDomain,
   domainFromActivity,

@@ -5,28 +5,14 @@ function mulberry32(seed) { let a = seed >>> 0; return function () { a |= 0; a =
 function hashString(str) { let h = 2166136261 >>> 0; for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619); return h >>> 0; }
 const rngFor = (seed) => mulberry32((seed ^ 0x9e3779b9) >>> 0);
 
-const LEVEL_XP = [0, 100, 250, 500, 900];
-const LEVEL_LABELS = ['Newborn', 'Growing', 'Stronger', 'Thriving', 'Fully Raised'];
+const LEVEL_XP = [0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700];
+const LEVEL_LABELS = ['Newborn', 'Growing', 'Stronger', 'Thriving', 'Seasoned', 'Veteran', 'Elder', 'Ancient', 'Exalted', 'Fully Raised'];
 function levelLabel(c) { if (c.status === 'sick' && (c.level || 1) < 2) return 'Weak & Sick'; return LEVEL_LABELS[Math.min(c.level || 1, LEVEL_LABELS.length) - 1]; }
 function xpPct(c) { const l = c.level || 1; if (l >= LEVEL_XP.length) return 1; return Math.max(0, Math.min(1, ((c.xp || 0) - LEVEL_XP[l - 1]) / (LEVEL_XP[l] - LEVEL_XP[l - 1]))); }
 
-// ---- skills: experience by domain, earned from real runs ----
+// ---- skills: computed server-side from real runs (skills.js), rendered here ----
 const DOMAIN_LABEL = { cog: 'Engineering', scholar: 'Research', moth: 'Writing', prism: 'Design', lumen: 'Video', hydra: 'Outreach', wisp: 'General' };
-const SKILL_TIERS = [0, 150, 400, 800, 1400, 2200, 3200];
-const SKILL_TITLES = ['Novice', 'Apprentice', 'Adept', 'Skilled', 'Expert', 'Master', 'Grandmaster'];
-const SKILL_COLOR = ['#8b90a0', '#6ee7a5', '#67a8f0', '#b28dff', '#ff7bd0', '#f5c451', '#f5c451'];
-const SKILL_TIER_GLYPH = ['Common', 'Uncommon', 'Rare', 'Epic', 'Mythic', 'Legendary', 'Legendary'];
-function skillLevelIdx(xp) { let l = 0; for (let i = 0; i < SKILL_TIERS.length; i++) if (xp >= SKILL_TIERS[i]) l = i; return l; }
-function skillPct(xp) { const l = skillLevelIdx(xp); if (l >= SKILL_TIERS.length - 1) return 1; return Math.max(0, Math.min(1, (xp - SKILL_TIERS[l]) / (SKILL_TIERS[l + 1] - SKILL_TIERS[l]))); }
-function computeSkills(creatures) {
-  const m = {};
-  for (const c of creatures) {
-    const d = c.domainKey; const s = m[d] || (m[d] = { domain: d, creatures: 0, ms: 0, xp: 0 });
-    s.creatures++; s.ms += c.durationMs || 0;
-    s.xp += (c.rarity.index + 1) * 20 + Math.min((c.durationMs || 0) / 60000, 60) * 2;
-  }
-  return Object.values(m).map((s) => { const l = skillLevelIdx(s.xp); s.level = l + 1; s.pct = skillPct(s.xp); return s; }).sort((a, b) => b.xp - a.xp);
-}
+const fmtN = (n) => Math.round(n || 0).toLocaleString('en-US');
 
 // ---- color helpers ----
 function hexToRgb(h) { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map((x) => x + x).join(''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
@@ -120,7 +106,7 @@ function creatureVisual(c, size) { const a = ART[c.speciesKey + '_' + c.rarity.t
 const initials = (h) => (h || '?').replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase();
 function tileHTML(c) {
   const care = c.status === 'sick' ? `<div class="care">needs care · a few good tasks will heal it</div>` : c.status === 'healed' ? `<div class="care healed">healed ✓</div>` : '';
-  return `<div class="tile ${!firstLoad && !known.has(c.id) ? 'new' : ''}" data-id="${c.id}">
+  return `<div class="tile ${!firstLoad && !known.has(c.id) ? 'new' : ''}" data-id="${escapeXml(c.id)}">
     <span class="rchip" style="color:${c.rarity.chip}">${c.rarity.tier}</span>
     ${c.att ? `<span class="verified" title="real · verified">✓</span>` : ''}
     ${creatureVisual(c, 128)}
@@ -130,7 +116,7 @@ function tileHTML(c) {
     ${care}</div>`;
 }
 function mcardHTML(c, origin) {
-  return `<div class="mcard" ${c.id ? `data-id="${c.id}"` : ''}>
+  return `<div class="mcard" ${c.id ? `data-id="${escapeXml(c.id)}"` : ''}>
     <span class="rchip" style="color:${c.rarity.chip}">${c.rarity.tier}</span>
     ${creatureSVG(c, 118)}
     <div class="nm">${escapeXml(c.fullName)}</div>
@@ -263,37 +249,34 @@ function sec_proof() {
 
 // ---- section: skills ----
 function skillBar(s) {
-  const title = SKILL_TITLES[s.level - 1], col = SKILL_COLOR[s.level - 1];
-  const next = s.level >= SKILL_TITLES.length ? 'mastered' : `${Math.round(SKILL_TIERS[s.level] - s.xp)} xp to ${SKILL_TITLES[s.level]}`;
-  const glyph = demoCreature(DOMAIN_LABEL[s.domain] || s.domain, s.domain, SKILL_TIER_GLYPH[s.level - 1], { crown: s.level >= 6, salt: 'sk' });
-  return `<div class="skill">
+  const col = s.band.color;
+  const glyph = demoCreature(s.name, s.species, s.level >= 60 ? 'Legendary' : s.level >= 40 ? 'Epic' : s.level >= 20 ? 'Rare' : s.level >= 10 ? 'Uncommon' : 'Common', { crown: s.level >= 60, salt: 'sk' });
+  const next = s.tracking ? (s.since ? 'tracking since ' + new Date(s.since).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'tracked from your next run') : s.level >= 99 ? (s.stars >= 5 ? 'max prestige' : fmtN(s.toNext) + ' xp to the next star') : fmtN(s.toNext) + ' xp to Lv ' + (s.level + 1) + (s.nextBand ? ' · ' + s.nextBand.name + ' at Lv ' + s.nextBand.level : '');
+  return `<div class="skill" ${s.tracking ? 'style="opacity:.55"' : ''}>
     <div class="skill-glyph">${creatureSVG(glyph, 52)}</div>
     <div class="skill-body">
-      <div class="skill-top"><span class="skill-name">${escapeXml(DOMAIN_LABEL[s.domain] || s.domain)} <span class="skill-title" style="color:${col}">${title}</span></span><span class="skill-lvl">Lv ${s.level}</span></div>
-      <div class="skill-bar"><i style="width:${Math.round(s.pct * 100)}%;background:linear-gradient(90deg,${SKILL_COLOR[Math.max(0, s.level - 2)]},${col})"></i></div>
-      <div class="skill-meta">${s.creatures} creatures · ${(s.ms / 3600000).toFixed(1)}h · ${Math.round(s.xp)} xp · ${next}</div>
+      <div class="skill-top"><span class="skill-name">${escapeXml(s.name)} <span class="skill-title" style="color:${col}">${escapeXml(s.title)}</span>${s.stars ? ' ' + '★'.repeat(s.stars) : ''}</span><span class="skill-lvl">Lv ${s.level}</span></div>
+      <div class="skill-bar"><i style="width:${s.tracking ? 0 : Math.round(s.pct * 100)}%;background:${col}"></i></div>
+      <div class="skill-meta">${fmtN(s.xp)} xp · ${s.creatures} run${s.creatures === 1 ? "" : "s"} · ${escapeXml(next)}</div>
     </div></div>`;
 }
 function sec_skills() {
-  const cs = latest.creatures;
-  if (!cs.length) return `<p class="empty">Run some agents and your skills will start filling in.</p>`;
-  const skills = computeSkills(cs);
-  const totalXp = Math.round(skills.reduce((a, s) => a + s.xp, 0));
-  const operatorLevel = skills.reduce((a, s) => a + s.level, 0);
-  const top = skills[0];
+  const sk = latest.skills;
+  if (!latest.creatures.length || !sk) return `<p class="empty">Run some agents and your skills will start filling in.</p>`;
+  const top = sk.list.slice().sort((a, b) => b.xp - a.xp)[0];
+  const groups = [['work', 'Work'], ['craft', 'Craft'], ['habits', 'Habits']];
   const header = `<div class="grid cols-2">
-    <div class="panel tinted"><span class="eyebrow">Experience</span>
+    <div class="panel tinted"><span class="eyebrow">Total level · ${escapeXml(sk.totalBand.name)}</span>
       <div class="stats-row" style="margin-top:12px">
-        <div class="stat"><b>${totalXp}</b><span>total xp</span></div>
-        <div class="stat"><b>${operatorLevel}</b><span>operator level</span></div>
-        <div class="stat"><b>${cs.length}</b><span>runs</span></div>
-        <div class="stat"><b>${latest.stats.machineHours}</b><span>machine hrs</span></div></div>
-      <p class="note" style="margin-top:12px">Every run pours experience into the skill it exercised. Your rarest and longest runs give the most. Level a skill from Novice to Grandmaster.</p></div>
+        <div class="stat"><b>${sk.totalLevel}</b><span>total level</span></div>
+        <div class="stat"><b>${fmtN(sk.totalXp)}</b><span>total xp</span></div>
+        <div class="stat"><b>${latest.creatures.length}</b><span>runs</span></div></div>
+      <p class="note" style="margin-top:12px">Every run pours experience into the skills it exercised, read from the tools it used. Levels run from 1 to 99. Runs from before activity tracking count toward the skill of their species.</p></div>
     <div class="panel"><span class="eyebrow">Signature skill</span>
-      <div style="display:flex;gap:16px;align-items:center;margin-top:10px">${creatureSVG(demoCreature(DOMAIN_LABEL[top.domain], top.domain, SKILL_TIER_GLYPH[top.level - 1], { crown: top.level >= 6, salt: 'sig' }), 104)}
-        <div><h2 style="font-size:22px">${escapeXml(DOMAIN_LABEL[top.domain])}</h2><div class="note" style="margin-top:4px">${SKILL_TITLES[top.level - 1]} · Lv ${top.level}</div><div class="note">${top.creatures} creatures · ${Math.round(top.xp)} xp</div></div></div></div>
+      <div style="display:flex;gap:16px;align-items:center;margin-top:10px">${creatureSVG(demoCreature(top.name, top.species, 'Legendary', { crown: top.level >= 60, salt: 'sig', orbiters: top.stars }), 104)}
+        <div><h2 style="font-size:22px">${escapeXml(top.name)}</h2><div class="note" style="margin-top:4px">${escapeXml(top.title)} · Lv ${top.level}</div><div class="note">${top.creatures} runs · ${fmtN(top.xp)} xp</div></div></div></div>
   </div>`;
-  return header + `<div class="panel" style="margin-top:16px"><div class="p-head"><h2>Skills</h2><span class="note">experience by domain, earned from real runs</span></div><div class="skills">${skills.map(skillBar).join('')}</div></div>`;
+  return header + groups.map(([g, label]) => `<div class="panel" style="margin-top:16px"><div class="p-head"><h2>${label}</h2></div><div class="skills">${sk.list.filter((s) => s.group === g).map(skillBar).join('')}</div></div>`).join('');
 }
 
 // ---- section: board ----
@@ -489,14 +472,15 @@ function downloadCard(c) {
 let lastSig = '';
 async function poll(force) {
   try {
-    const [st, bd, be] = await Promise.all([fetch('/api/state').then((r) => r.json()), fetch('/api/board').then((r) => r.json()), fetch('/api/bestiary').then((r) => r.json())]);
-    // toast on genuinely new creature
-    if (!firstLoad) for (const c of st.creatures) if (!known.has(c.id)) showToast(c);
+    const tz = new Date().getTimezoneOffset();
+    const [st, bd, be] = await Promise.all([fetch('/api/state?tz=' + tz).then((r) => r.json()), fetch('/api/board').then((r) => r.json()), fetch('/api/bestiary').then((r) => r.json())]);
+    // toast on a genuinely new creature, once
+    if (!firstLoad) for (const c of st.creatures) if (!known.has(c.id)) { known.add(c.id); showToast(c); }
     latest = st; boardData = bd.board || []; bestiaryData = be;
     if (!cfState.a && be.breeds && be.breeds.length) { cfState.a = be.breeds[0].bredBy[0]; cfState.b = be.breeds[0].bredBy[1]; cfState.result = { creature: be.breeds[0], domain: be.breeds[0].domain }; }
     if (!pubInfo) fetch('/api/pubkey').then((r) => r.json()).then((p) => { pubInfo = p; if (current === 'proof' && document.getElementById('modal').hidden) renderActive(); }).catch(() => {});
     document.getElementById('railme').innerHTML = `<span class="av" style="background:${(st.me && st.me.accent) || '#67e39a'}">${st.me ? initials(st.me.handle) : '?'}</span><span>you</span>`;
-    const sig = `${current}|${st.creatures.length}|${st.eggs.length}|${st.me ? st.me.score : 0}|${boardData.length}|${be.network ? be.network.breeds : 0}`;
+    const sig = `${current}|${st.creatures.length}|${st.eggs.length}|${st.me ? st.me.score : 0}|${boardData.length}|${be.network ? be.network.breeds : 0}|${st.skills ? st.skills.list.map((s) => s.level).join() : ''}`;
     if ((force || sig !== lastSig) && document.getElementById('modal').hidden) { lastSig = sig; renderActive(); }
     firstLoad = false;
   } catch (e) {}
@@ -508,5 +492,6 @@ function readHash() { const h = location.hash.replace('#', ''); if (h.startsWith
 
 buildRail();
 loadArt().then(() => poll(true)).then(readHash);
-setInterval(() => poll(false), 1600);
+setInterval(() => { if (!document.hidden) poll(false); }, 5000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(false); });
 setInterval(tickTimers, 1000);
