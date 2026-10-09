@@ -1,0 +1,8 @@
+# the attestor private key and local state never leave this machine
+data/attestor.json
+data/state.json
+data/config.json
+server.log
+node_modules
+server.err.log
+*.pol-backup-*

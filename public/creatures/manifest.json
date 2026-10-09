@@ -1,0 +1,4 @@
+{
+  "species": {},
+  "note": "Filled by the generation step. Keys are speciesKey (e.g. cog) or speciesKey_rarity (e.g. cog_legendary). Values are filenames in this folder. Empty = pure procedural SVG."
+}
