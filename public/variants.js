@@ -69,10 +69,10 @@
   // ---- growth: the look follows the level the herd raised it to ----
   const STAGES = [
     { key: 'hatchling', name: 'Hatchling', from: 1 },
-    { key: 'juvenile', name: 'Juvenile', from: 3 },
-    { key: 'adult', name: 'Adult', from: 5 },
-    { key: 'elder', name: 'Elder', from: 7 },
-    { key: 'exalted', name: 'Exalted', from: 9 },
+    { key: 'juvenile', name: 'Juvenile', from: 6 },
+    { key: 'adult', name: 'Adult', from: 15 },
+    { key: 'elder', name: 'Elder', from: 28 },
+    { key: 'exalted', name: 'Exalted', from: 40 },
   ];
   function stageOf(c) {
     if (c && (c.bredBy || c.parents)) return STAGES[2]; // a hybrid arrives grown

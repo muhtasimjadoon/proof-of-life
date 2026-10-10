@@ -5,7 +5,7 @@ function mulberry32(seed) { let a = seed >>> 0; return function () { a |= 0; a =
 function hashString(str) { let h = 2166136261 >>> 0; for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619); return h >>> 0; }
 const rngFor = (seed) => mulberry32((seed ^ 0x9e3779b9) >>> 0);
 
-const LEVEL_XP = [0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700];
+const LEVEL_XP = Array.from({ length: 60 }, (_, i) => (i ? 10 * i * i + 40 : 0)); // the same curve as engine.js
 // one growth vocabulary everywhere: the stage names from variants.js (Hatchling, Juvenile, Adult, Elder, Exalted)
 function levelLabel(c) { return stageOf(c).name; }
 const lvLine = (c) => `Lv ${c.level || 1} · ${stageOf(c).name}`;
@@ -20,6 +20,7 @@ function hexToRgb(h) { h = h.replace('#', ''); if (h.length === 3) h = h.split('
 function rgbToHex(r, g, b) { return '#' + [r, g, b].map((x) => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, '0')).join(''); }
 function mix(hex, t, a) { const x = hexToRgb(hex), y = hexToRgb(t); return rgbToHex(x[0] + (y[0] - x[0]) * a, x[1] + (y[1] - x[1]) * a, x[2] + (y[2] - x[2]) * a); }
 const lighten = (h, a) => mix(h, '#ffffff', a); const darken = (h, a) => mix(h, '#000000', a);
+const lum = (h) => { const [r, g, b] = hexToRgb(h); return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; };
 const escapeXml = (s) => String(s).replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c]));
 
 // ---- shape helpers ----
@@ -49,7 +50,7 @@ function demoCreature(name, sk, tier, o) {
   const palette = Object.assign({}, sp.palette); let bg = '#141821';
   if ((o.traits || []).includes('Nightshift')) { bg = '#0c0e16'; palette.glow = '#8f7bff'; }
   if (o.status === 'sick') palette.overlay = '#6f8f5a';
-  return { seed: hashString(name + '|' + sk + '|' + tier + '|' + (o.salt || '')), fullName: name, speciesKey: sk, speciesName: sp.name, archetype: sp.archetype, rarity: { tier, index: idx, chip: TIERC[tier] || '#8b90a0' }, palette, bg, traits: o.traits || [], features: featuresFor(sk, idx, o), status: o.status || 'healthy', level: o.level || 5, durationLabel: o.durationLabel || '', vo: o.vo || null, demo: true };
+  return { seed: hashString(name + '|' + sk + '|' + tier + '|' + (o.salt || '')), fullName: name, speciesKey: sk, speciesName: sp.name, archetype: sp.archetype, rarity: { tier, index: idx, chip: TIERC[tier] || '#8b90a0' }, palette, bg, traits: o.traits || [], features: featuresFor(sk, idx, o), status: o.status || 'healthy', level: o.level || 15, durationLabel: o.durationLabel || '', vo: o.vo || null, demo: true };
 }
 
 // ==== ART START: creature renderer (pure, deterministic; the contact-sheet harness slices this block) ====
@@ -168,7 +169,7 @@ function artCtx(c, rng) {
   if (!sick) lid = Math.max(lid, { sleepy: 0.52, smug: 0.34, determined: 0.14 }[ex] || 0);
   return {
     c, rng, v, sk, T, ti, rk, R: 56, sid, pal, mat, night, sick, healed, hybrid, pk, other, rimC, iris, iris2, tr, tilt, lid, ex,
-    stage, look, eyeK: look.eye, eyeStyle: v ? v.eyes.key : 'classic', glowEyes: ti >= 2 && !sick,
+    stage, exalted: sk0 === 'exalted', look, eyeK: look.eye, eyeStyle: v ? v.eyes.key : 'classic', glowEyes: ti >= 2 && !sick,
     wink: ex === 'wink' ? (v ? v.flip : 1) : 0, lidAng: ex === 'determined' ? 16 : ex === 'smug' ? -9 : 0,
     flip: v ? v.flip : 1, defs: [],
   };
@@ -304,8 +305,11 @@ function drawEye(A, e) {
 function browsSVG(A, eyes, up) {
   const ex = A.ex, elder = A.stage === 'elder';
   if (A.sick || (!elder && (ex === 'calm' || ex === 'sick'))) return '';
-  // elders grow pale brows (white from Lv 9); they keep the shape of the expression
-  const ink = elder ? ((A.c.level || 1) >= 9 ? '#f6f2e8' : mix(A.pal.body, '#fffaf0', 0.72)) : darken(A.pal.body, 0.62);
+  // elders grow bushy, tapered brows (snow white once Exalted) that keep the shape of the expression.
+  // On a pale body they go silver-grey with a darker edge, so they never read as a strip of tape.
+  const pale = lum(A.mat === 'gold' ? '#e8b64a' : A.pal.body) > 0.62;
+  const ink = elder ? (pale ? (A.exalted ? '#c9ccd8' : mix(A.pal.body, '#5d6274', 0.55)) : A.exalted ? '#f6f2e8' : mix(A.pal.body, '#fffaf0', 0.62)) : darken(A.pal.body, 0.62);
+  const edge = darken(A.pal.body, 0.6);
   let q = '';
   for (const e of eyes) {
     const side = sideOf(e.x), er = e.er, w = er * 0.86;
@@ -321,10 +325,12 @@ function browsSVG(A, eyes, up) {
     const x1 = e.x - w, x2 = e.x + w, cx = e.x, cyq = (y1 + y2) / 2 - curve * er;
     const d = `M${F(x1)} ${F(y1)}Q${F(cx)} ${F(cyq)} ${F(x2)} ${F(y2)}`;
     if (elder) {
-      const sw = Math.max(3.6, er * 0.42);
-      q += `<path d="${d}" fill="none" stroke="${darken(A.pal.body, 0.55)}" stroke-opacity=".75" stroke-width="${F(sw + 2.2)}" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${ink}" stroke-width="${F(sw)}" stroke-linecap="round"/>`;
-      const ox = side < 0 ? x1 : side > 0 ? x2 : x2, oy = side < 0 ? y1 : y2, dir = side < 0 ? -1 : 1;
-      q += `<path d="M${F(ox)} ${F(oy)}q${F(dir * 4)} 1 ${F(dir * 5.5)} 4.5M${F(ox - dir * 2)} ${F(oy + 1)}q${F(dir * 3)} 2 ${F(dir * 3.2)} 5.5" fill="none" stroke="${ink}" stroke-width="1.8" stroke-linecap="round"/>`;
+      // a tapered crescent, thick in the middle, with a few hairs flicking out at the outer end
+      const th = Math.max(3.2, er * 0.36), dir = side < 0 ? -1 : 1, ox = dir < 0 ? x1 : x2, oy = dir < 0 ? y1 : y2;
+      const shape = `M${F(x1)} ${F(y1)}Q${F(cx)} ${F(cyq - th * 1.25)} ${F(x2)} ${F(y2)}Q${F(cx)} ${F(cyq + th * 0.35)} ${F(x1)} ${F(y1)}Z`;
+      let hair = ''; for (let k = 0; k < 3; k++) { const t = 0.25 + k * 0.25, hx = x1 + (x2 - x1) * t, hy = (y1 + (y2 - y1) * t) - th * 0.55 - curve * er * 0.8; hair += `M${F(hx)} ${F(hy + 1.2)}q${F(dir * 1.6)} -2.6 ${F(dir * 3.6)} -3.4`; }
+      hair += `M${F(ox)} ${F(oy)}q${F(dir * 3.4)} .4 ${F(dir * 5)} 3.6`;
+      q += `<path d="${shape}" fill="${ink}" stroke="${edge}" stroke-opacity=".55" stroke-width="1.1" stroke-linejoin="round"/><path d="${hair}" fill="none" stroke="${ink}" stroke-width="1.5" stroke-linecap="round"/>`;
     } else q += `<path d="${d}" fill="none" stroke="${ink}" stroke-width="${F(Math.max(2.4, er * 0.27))}" stroke-linecap="round"/>`;
   }
   return q;
@@ -553,7 +559,9 @@ SPECIES_PARTS.moth = {
     wing += `<path d="M${F(X(R * 0.45))} ${F(cy - R * 0.28)}Q${F(X(R * 1.0))} ${F(cy - R * 0.9)} ${F(X(R * 1.5))} ${F(cy - R * 1.02)}M${F(X(R * 0.45))} ${F(cy - R * 0.25)}Q${F(X(R * 1.1))} ${F(cy - R * 0.5)} ${F(X(R * 1.66))} ${F(cy - R * 0.45)}M${F(X(R * 0.45))} ${F(cy - R * 0.2)}Q${F(X(R * 1.0))} ${F(cy - R * 0.05)} ${F(X(R * 1.45))} ${F(cy + R * 0.05)}M${F(X(R * 0.5))} ${F(cy + R * 0.12)}Q${F(X(R * 0.85))} ${F(cy + R * 0.3)} ${F(X(R * 1.1))} ${F(cy + R * 0.65)}" fill="none" stroke="${lighten(b, 0.7)}" stroke-width="1" opacity=".4"/>`;
     if (A.rk >= 2) { const ex = X(R * 1.18), ey = cy - R * 0.6; wing += `<circle cx="${F(ex)}" cy="${F(ey)}" r="9.5" fill="#f6e7d3" stroke="${darken(b, 0.45)}" stroke-width="1"/><circle cx="${F(ex)}" cy="${F(ey)}" r="6.2" fill="${darken(b, 0.6)}"/><circle ${A.rk >= 3 ? 'class="pl-pulse" ' : ''}cx="${F(ex)}" cy="${F(ey)}" r="3.6" fill="${A.rk >= 3 ? A.pal.glow : lighten(b, 0.2)}"/><circle cx="${F(ex - 1.2)}" cy="${F(ey - 1.2)}" r="1.6" fill="#fff"/>`; const lx = X(R * 0.95), ly = cy + R * 0.5; wing += `<circle cx="${F(lx)}" cy="${F(ly)}" r="5" fill="#f6e7d3"/><circle cx="${F(lx)}" cy="${F(ly)}" r="2.8" fill="${darken(b, 0.6)}"/>`; }
     const tr = `rotate(${F(K.flap)} ${F(X(R * 0.45))} ${F(cy - R * 0.2)})`;
-    return `<g transform="${tr}"><g class="pl-wing">${wing}</g></g><g transform="matrix(-1 0 0 1 200 0)"><g transform="${tr}"><g class="pl-wing">${wing}</g></g></g>`;
+    const pair = `<g transform="${tr}"><g class="pl-wing">${wing}</g></g><g transform="matrix(-1 0 0 1 200 0)"><g transform="${tr}"><g class="pl-wing">${wing}</g></g></g>`;
+    // a Legendary moth's upgrade is a bigger wingspan
+    return A.ti >= 4 ? `<g transform="translate(100 ${F(cy)}) scale(1.16) translate(-100 ${F(-cy)})">${pair}</g>` : pair;
   },
   detail(A, K) {
     const R = A.R, b = A.pal.body, cy = K.cy, fx = 100, fy = cy + R * 0.5;
@@ -648,12 +656,12 @@ SPECIES_PARTS.lumen = {
   geo(A) {
     const R = A.R, cy = 128, rx = R * 0.9, ry = R * 0.98, capBot = cy - ry + 6, capTop = capBot - R * 0.28, ringY = capTop - 7;
     const d = `M${F(100 - rx)} ${cy}A${F(rx)} ${F(ry)} 0 1 1 ${F(100 + rx)} ${cy}A${F(rx)} ${F(ry)} 0 1 1 ${F(100 - rx)} ${cy}Z`;
-    const leg = A.ti >= 4, er = R * 0.2 * A.eyeK, eyeY = cy - R * 0.06;
-    return { d, cy, rx, ry, capBot, capTop, ringY, sx: 100, sy: cy, headTop: { x: 100, y: leg ? capTop : ringY - 10.7 }, brow: cy - R * 0.6, bw: R * 0.72, eyeY, er, spec: { x: 100 - R * 0.42, y: cy - R * 0.5 }, scarAt: { x: 100 + R * 0.5, y: cy - R * 0.45 },
+    const er = R * 0.2 * A.eyeK, eyeY = cy - R * 0.06;
+    return { d, cy, rx, ry, capBot, capTop, ringY, sx: 100, sy: cy, headTop: { x: 100, y: ringY - 10.7 }, brow: cy - R * 0.6, bw: R * 0.72, eyeY, er, spec: { x: 100 - R * 0.42, y: cy - R * 0.5 }, scarAt: { x: 100 + R * 0.5, y: cy - R * 0.45 },
       hat: { x: 100, y: capTop + 2, w: R * 0.4 }, ear: { y: eyeY, dx: rx + 1 }, neck: { y: capBot + 8, w: R * 0.66 }, gog: { y: capBot + 14, dx: R * 0.22, r: R * 0.13 }, bowAt: { x: 100 - R * 0.55, y: capBot - 3 }, sproutAt: { x: 100 + 11, y: capTop + 1 }, visW: rx + 2 };
   },
   aura(A, K) { return `<circle cx="100" cy="${F(K.cy)}" r="${F(A.R + 36)}" fill="url(#la-${A.sid})"/>`; },
-  ornament(A, K) { return A.ti >= 4 ? '' : lumenRing(100, K.ringY); },
+  ornament(A, K) { return lumenRing(100, K.ringY); },
   detail(A, K) {
     const R = A.R, cy = K.cy, rx = K.rx, ry = K.ry; let q = '';
     q += `<g transform="translate(100 ${F(cy + R * 0.62)}) scale(1.05)"><g class="pl-flicker"><path d="M0 10C8 2 6 -8 0 -16C-6 -8 -8 2 0 10Z" fill="url(#pl-flame)" opacity=".7"/></g></g>`;
@@ -751,7 +759,7 @@ SPECIES_PARTS.wisp = {
     return { d, cy, sx: 100, sy: cy, float: true, headTop: { x: 100, y: cy - R }, brow: cy - R * 0.5, bw: R * 0.86, eyeY, er, scarAt: { x: 100 + R * 0.55, y: cy - R * 0.5 },
       hat: { x: 100, y: cy - R + 6, w: R * 0.56 }, ear: { y: cy - R * 0.12, dx: R * 1.0 }, neck: { y: cy + R * 0.5, w: R * 1.02 }, gog: { y: cy - R * 0.72, dx: R * 0.24, r: R * 0.14 }, bowAt: { x: 100 - R * 0.6, y: cy - R * 0.72 }, sproutAt: { x: 100 + 10, y: cy - R + 1 }, visW: R * 1.04 };
   },
-  ornament(A, K) { if (A.v && A.v.accessory && A.v.accessory.key === 'beanie') return ''; return wispFlame(A, K.headTop.x + (A.ti >= 4 ? A.R * 0.36 : 0), K.headTop.y + (A.ti >= 4 ? 6 : 0), A.ti >= 4 ? 1.1 : 1.4); },
+  ornament(A, K) { if (A.v && A.v.accessory && A.v.accessory.key === 'beanie') return ''; return wispFlame(A, K.headTop.x, K.headTop.y, 1.4); },
   detail(A, K) { return `<circle cx="100" cy="${F(K.cy - A.R * 0.25)}" r="${F(A.R * 0.5)}" fill="url(#pl-glow-w)" opacity=".75"/>`; },
   face(A, K) {
     const R = A.R, ey = K.eyeY, ex = R * 0.27 * 0.95 * Math.max(1, A.eyeK * 0.92); let q = blushAt(A, ey + K.er * 1.15, R * 0.48);
@@ -816,10 +824,11 @@ const ACC = {
     q += glossy(`M${F(x - 3.6)} ${F(y - 3.8)}h7.2v7.6h-7.2z`, lighten(col, 0.08), dk, 2.2) + '</g>';
     return q;
   },
+  // goggles ride up on the forehead, never over the eyes
   goggles(A, K, col) {
-    const { y, dx, r } = K.gog, strap = '#3a2a22';
+    const { dx, r } = K.gog, strap = '#3a2a22', y = Math.min(K.gog.y, K.eyeY - K.er * 1.3 - r - 6);
     let q = '';
-    if (!A.tr.includes('Marathon')) {
+    {
       const bd = `M${F(100 - A.R * 1.25)} ${F(y + 6)}Q100 ${F(y - 4)} ${F(100 + A.R * 1.25)} ${F(y + 6)}`;
       q += `<g clip-path="url(#cl-${A.sid})"><path d="${bd}" fill="none" stroke="#1a120e" stroke-width="8"/><path d="${bd}" fill="none" stroke="${strap}" stroke-width="6"/><path d="${bd}" fill="none" stroke="#6b5040" stroke-width="1.2" transform="translate(0 -1.5)"/></g>`;
     }
@@ -830,8 +839,9 @@ const ACC = {
     }
     return q;
   },
+  // a wraparound shade pushed up onto the forehead, so the face always shows
   visor(A, K, col) {
-    const y = K.eyeY + K.er * 0.05, h = K.er * 1.7, w = K.visW, dk = '#14161d';
+    const h = Math.max(9, K.er * 1.05), y = K.eyeY - K.er * 1.3 - h * 0.62 - 5, w = K.visW * 0.9, dk = '#14161d';
     const d = `M${F(100 - w)} ${F(y - h * 0.42)}Q100 ${F(y - h * 0.62)} ${F(100 + w)} ${F(y - h * 0.42)}L${F(100 + w * 0.94)} ${F(y + h * 0.38)}Q100 ${F(y + h * 0.62)} ${F(100 - w * 0.94)} ${F(y + h * 0.38)}Z`;
     let q = `<path d="${d}" fill="${mix(col, '#0b0d14', 0.25)}" fill-opacity=".42" stroke="${dk}" stroke-width="2.6" stroke-linejoin="round"/>`;
     q += `<path d="M${F(100 - w * 0.92)} ${F(y - h * 0.36)}Q100 ${F(y - h * 0.54)} ${F(100 + w * 0.92)} ${F(y - h * 0.36)}" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="1.6" stroke-linecap="round"/>`;
@@ -852,11 +862,10 @@ const ACC = {
     return q;
   },
 };
-// which layer an accessory goes on: 'face' items go over the eyes, the rest over the body
-const ACC_LAYER = { visor: 'face', goggles: 'face', scarf: 'body', headphones: 'top', beanie: 'top', bow: 'top', sprout: 'top' };
+// which layer an accessory goes on: nothing ever covers the eyes
+const ACC_LAYER = { visor: 'top', goggles: 'top', scarf: 'body', headphones: 'top', beanie: 'top', bow: 'top', sprout: 'top' };
 function accessorySVG(A, K, layer) {
   const a = A.v && A.v.accessory; if (!a || !ACC[a.key] || ACC_LAYER[a.key] !== layer) return '';
-  if (A.sick && a.key === 'visor') return '';
   return `<g class="acc">${ACC[a.key](A, K, A.v.accColor)}</g>`;
 }
 
@@ -893,10 +902,6 @@ function drawTraits(A, K) {
   }
   return q;
 }
-function drawBand(A, K) {
-  const R = A.R, y = K.brow, s = A.sid, bd = `M${F(100 - R * 1.25)} ${F(y + 5)}Q100 ${F(y - 6)} ${F(100 + R * 1.25)} ${F(y + 5)}`, kx = 100 + K.bw, ky = y + 2.5;
-  return `<g clip-path="url(#cl-${s})"><path d="${bd}" fill="none" stroke="#a83a35" stroke-width="9"/><path d="${bd}" fill="none" stroke="#e8615b" stroke-width="7"/><path d="${bd}" fill="none" stroke="#fff" stroke-width="1.5" opacity=".9"/></g><path d="M${F(kx - 2)} ${F(ky - 2)}Q${F(kx + 8)} ${F(ky - 9)} ${F(kx + 14)} ${F(ky - 3)}Q${F(kx + 7)} ${F(ky - 1)} ${F(kx + 1)} ${F(ky + 2)}ZM${F(kx - 1)} ${F(ky + 1)}Q${F(kx + 7)} ${F(ky + 3)} ${F(kx + 11)} ${F(ky + 10)}Q${F(kx + 4)} ${F(ky + 7)} ${F(kx - 2)} ${F(ky + 4)}Z" fill="#e8615b" stroke="#a83a35" stroke-width="2" stroke-linejoin="round" paint-order="stroke"/><circle cx="${F(kx - 1)}" cy="${F(ky + 1)}" r="3" fill="#d24f49" stroke="#a83a35" stroke-width="1"/><path d="${dropP(100 - R * 0.62, y + 8, 7)}" fill="#bfe6ff" stroke="#4d86b3" stroke-width="1.2" paint-order="stroke"/>`;
-}
 function drawSwarm(A, K, front) {
   const R = A.R, c = A.c, n = Math.max(3, Math.min(6, (c.features && c.features.orbiters) || c.subagents || 4)), rot = (-12 * Math.PI) / 180;
   let q = front ? '' : `<ellipse cx="100" cy="${F(K.cy)}" rx="${F(R + 28)}" ry="16" transform="rotate(-12 100 ${F(K.cy)})" fill="none" stroke="${lighten(A.pal.glow, 0.3)}" stroke-opacity=".3" stroke-width="1.2" stroke-dasharray="3 4"/>`;
@@ -919,37 +924,35 @@ function markingsSVG(A, K) {
   }
   return `<g clip-path="url(#cl-${A.sid})" class="pl-pulse"><path d="${d}" fill="none" stroke="${g}" stroke-width="5" stroke-linecap="round" opacity=".3"/><path d="${d}" fill="none" stroke="${g}" stroke-width="1.9" stroke-linecap="round" opacity=".95"/></g>`;
 }
-// Legendary and Mythic: a crown or halo made for each species
-function crownFor(A, x, y) {
-  const myth = A.ti >= 5, fill = myth ? 'url(#pl-irid)' : 'url(#pl-gold)', edge = myth ? '#7a2a6a' : '#5a3a04', gem = myth ? '#7bf0ff' : '#ff4d6d';
-  const G = (d, sw) => `<path d="${d}" fill="${fill}" stroke="${edge}" stroke-width="${sw || 2.6}" stroke-linejoin="round" paint-order="stroke"/>`;
-  const jewel = (jx, jy, r, c) => `<circle cx="${F(jx)}" cy="${F(jy)}" r="${F(r)}" fill="${c}" stroke="${edge}" stroke-width="1"/><circle cx="${F(jx - r * 0.35)}" cy="${F(jy - r * 0.35)}" r="${F(r * 0.35)}" fill="#fff" opacity=".85"/>`;
+// Legendary and Mythic: a silhouette and finish upgrade, not another sticker. Each species
+// grows its own pair of wings in the creature's finish (Gold Chrome, Holo, Chrome, Iridescent).
+const WING_STYLE = { cog: 'mech', scholar: 'feather', prism: 'crystal', lumen: 'flame', hydra: 'frill', wisp: 'flame' };
+function legendWings(A, K) {
+  const R = A.R, st = WING_STYLE[A.sk] || 'feather', mat = A.mat;
+  const fill = mat === 'chrome' ? 'url(#pl-mchrome)' : mat === 'holo' ? 'url(#pl-holob)' : mat === 'iridescent' ? 'url(#pl-irid)' : 'url(#pl-mgold)';
+  const edge = mat === 'chrome' ? '#1d2029' : mat === 'holo' || mat === 'iridescent' ? darken(A.pal.body, 0.66) : '#4a2d03';
+  const ax = 100 + R * (A.sk === 'lumen' ? 0.74 : 0.66), ay = K.cy - R * 0.16, ks = 1.38;
+  const blades = st === 'feather' ? [[-74, 1.02], [-56, 0.94], [-38, 0.84], [-21, 0.72], [-6, 0.6]] : st === 'crystal' ? [[-66, 1.05], [-38, 0.86], [-12, 0.66]] : st === 'mech' ? [[-60, 0.92], [-36, 0.8], [-12, 0.68]] : st === 'frill' ? [[-62, 0.86], [-34, 0.78], [-8, 0.66]] : [[-70, 1.05], [-40, 0.86], [-12, 0.68]];
   let q = '';
-  if (A.sk === 'cog') {
-    const ro = 15, ri = 11.5;
-    q += `<g transform="translate(${F(x)} ${F(y - 9)})">${G(gearPath(ro, ri, 10), 2.6)}<circle r="7.2" fill="${myth ? '#2a0e3c' : '#7a4e06'}" stroke="${edge}" stroke-width="1.6"/>${jewel(0, 0, 4.4, gem)}</g>`;
-  } else if (A.sk === 'scholar') {
-    for (const s of [-1, 1]) for (let i = 0; i < 5; i++) { const a = s > 0 ? -150 + i * 26 : -30 - i * 26; const px = x + s * (6 + i * 3.2), py = y - 4 - Math.sin((i / 4) * Math.PI) * 6; q += G(leafP(px, py, 11, s > 0 ? -60 + i * 18 : -120 - i * 18, 0.38), 2); }
-    q += jewel(x, y - 3, 3.6, gem);
-  } else if (A.sk === 'moth') {
-    q += G(`M${F(x - 17)} ${F(y)}Q${F(x)} ${F(y - 8)} ${F(x + 17)} ${F(y)}L${F(x + 15)} ${F(y + 3.5)}Q${F(x)} ${F(y - 3)} ${F(x - 15)} ${F(y + 3.5)}Z`, 2.2);
-    q += G(`M${F(x + 6)} ${F(y - 22)}A11 11 0 1 0 ${F(x + 6)} ${F(y - 2)}A8.5 8.5 0 1 1 ${F(x + 6)} ${F(y - 22)}Z`, 2.4);
-    q += `<path d="${star4(x - 12, y - 12, 3.4)}" fill="#fff6c8"/><path d="${star4(x + 13, y - 18, 2.6)}" fill="#fff6c8"/>`;
-  } else if (A.sk === 'prism') {
-    const sp = [[-13, 12, -16], [-6.5, 17, -7], [0, 24, 0], [6.5, 17, 7], [13, 12, 16]];
-    for (const [dx, h, ang] of sp) q += `<g transform="translate(${F(x + dx)} ${F(y + 2)}) rotate(${ang})">${G(`M0 0L${F(h * 0.22)} ${F(-h * 0.55)}L0 ${F(-h)}L${F(-h * 0.22)} ${F(-h * 0.55)}Z`, 2.2)}<path d="M0 0L0 ${F(-h)}" stroke="#fff" stroke-width=".8" opacity=".7"/></g>`;
-    q += G(`M${F(x - 17)} ${F(y + 1)}H${F(x + 17)}L${F(x + 15)} ${F(y + 6)}H${F(x - 15)}Z`, 2.2) + jewel(x, y + 3.5, 2.6, '#9be8ff');
-  } else if (A.sk === 'lumen') {
-    let r = ''; for (let i = 0; i < 12; i++) { const a = (i * Math.PI) / 6, r1 = 16, r2 = i % 2 ? 23 : 28; r += `M${F(x + Math.cos(a - 0.13) * r1)} ${F(y - 4 + Math.sin(a - 0.13) * r1)}L${F(x + Math.cos(a) * r2)} ${F(y - 4 + Math.sin(a) * r2)}L${F(x + Math.cos(a + 0.13) * r1)} ${F(y - 4 + Math.sin(a + 0.13) * r1)}Z`; }
-    q += `<g class="pl-spin" style="animation-duration:14s">${G(r, 1.8)}</g><circle cx="${F(x)}" cy="${F(y - 4)}" r="14" fill="none" stroke="${fill}" stroke-width="4"/><circle cx="${F(x)}" cy="${F(y - 4)}" r="14" fill="none" stroke="${edge}" stroke-width="1" opacity=".6"/>` + jewel(x, y - 18, 3.4, gem);
-  } else if (A.sk === 'hydra') {
-    let tips = ''; for (let i = 0; i < 5; i++) { const dx = -14 + i * 7, h = i === 2 ? 22 : i % 2 ? 17 : 13, s = dx < 0 ? -1 : 1; tips += `M${F(x + dx - 3)} ${F(y)}Q${F(x + dx - 4 + s * 2)} ${F(y - h * 0.6)} ${F(x + dx + s * 3)} ${F(y - h)}Q${F(x + dx + s * 6)} ${F(y - h + 4)} ${F(x + dx + s * 2.5)} ${F(y - h + 5)}Q${F(x + dx + 1)} ${F(y - h * 0.5)} ${F(x + dx + 3)} ${F(y)}Z`; }
-    q += G(tips, 2.2) + G(`M${F(x - 18)} ${F(y - 1)}H${F(x + 18)}L${F(x + 16)} ${F(y + 5)}H${F(x - 16)}Z`, 2.2) + jewel(x, y + 2, 2.6, gem);
-  } else {
-    q += `<ellipse cx="${F(x)}" cy="${F(y - 12)}" rx="17" ry="5" fill="none" stroke="${edge}" stroke-width="5"/><ellipse cx="${F(x)}" cy="${F(y - 12)}" rx="17" ry="5" fill="none" stroke="${fill}" stroke-width="3"/>`;
-    for (const dx of [-11, 0, 11]) q += `<g transform="translate(${F(x + dx)} ${F(y - 15)}) scale(${dx ? 0.42 : 0.55})"><g class="pl-flicker"><path d="M0 0C-10 -3 -9 -14 -1 -17C-4 -12 4 -12 2 -23C12 -15 11 -3 0 0Z" fill="${fill}" stroke="${edge}" stroke-width="3" paint-order="stroke"/></g></g>`;
-  }
-  return `<g class="crown">${q}</g>`;
+  blades.forEach(([deg, k], i) => {
+    const len = R * k * ks, a = (deg * Math.PI) / 180, ex = ax + Math.cos(a) * len, ey = ay + Math.sin(a) * len;
+    let d;
+    if (st === 'feather') d = leafP(ax, ay, len, deg, 0.26);
+    else if (st === 'crystal') { const n = -Math.sin(a), m = Math.cos(a), w = len * 0.2; d = pathOf([[ax, ay], [ax + Math.cos(a) * len * 0.42 + n * w, ay + Math.sin(a) * len * 0.42 + m * w], [ex, ey], [ax + Math.cos(a) * len * 0.42 - n * w * 0.7, ay + Math.sin(a) * len * 0.42 - m * w * 0.7]], true); }
+    else if (st === 'mech') { const n = -Math.sin(a), m = Math.cos(a), w0 = len * 0.13, w1 = len * 0.08; d = pathOf([[ax + n * w0, ay + m * w0], [ex + n * w1, ey + m * w1], [ex + Math.cos(a) * w1 * 1.6, ey + Math.sin(a) * w1 * 1.6], [ex - n * w1, ey - m * w1], [ax - n * w0, ay - m * w0]], true); }
+    else if (st === 'frill') d = leafP(ax, ay, len, deg, 0.2);
+    else d = tendrilPath(ax, ay, a, len, -1.2, len * 0.34);
+    q += `<path d="${d}" fill="${fill}" stroke="${edge}" stroke-width="3.2" stroke-linejoin="round" paint-order="stroke"/>`;
+    // a crisp highlight down each blade, plus a detail per style
+    const hx = ax + Math.cos(a) * len * 0.18, hy = ay + Math.sin(a) * len * 0.18, tx = ax + Math.cos(a) * len * 0.78, ty = ay + Math.sin(a) * len * 0.78;
+    q += `<path d="M${F(hx)} ${F(hy)}L${F(tx)} ${F(ty)}" stroke="#fff" stroke-opacity="${st === 'crystal' ? 0.8 : 0.55}" stroke-width="${st === 'crystal' ? 1.4 : 1.8}" stroke-linecap="round"/>`;
+    if (st === 'mech') q += `<circle cx="${F(ax + Math.cos(a) * len * 0.3)}" cy="${F(ay + Math.sin(a) * len * 0.3)}" r="1.9" fill="${edge}" opacity=".7"/>`;
+    if (st === 'frill') { let br = ''; for (let j = 1; j <= 3; j++) { const t = 0.32 + j * 0.16, bx = ax + Math.cos(a) * len * t, by = ay + Math.sin(a) * len * t; br += `M${F(bx)} ${F(by)}l${F(Math.cos(a - 0.9) * 5.5)} ${F(Math.sin(a - 0.9) * 5.5)}`; } q += `<path d="${br}" stroke="${edge}" stroke-width="1.4" stroke-linecap="round" opacity=".55"/>`; }
+    if (i === 0 && st !== 'mech') q += `<path d="${star4(ex, ey, 3.4)}" fill="#fff" opacity=".9" class="pl-twinkle"/>`;
+  });
+  if (st === 'mech') q += `<circle cx="${F(ax)}" cy="${F(ay)}" r="6.5" fill="${fill}" stroke="${edge}" stroke-width="2.6"/><circle cx="${F(ax)}" cy="${F(ay)}" r="2.4" fill="${edge}"/>`;
+  const one = `<g class="pl-lwing">${q}</g>`;
+  return `<g class="lwings">${one}<g transform="matrix(-1 0 0 1 200 0)">${one}</g></g>`;
 }
 // hatchlings still sit in the bottom half of their shell
 function shellSVG(A, front) {
@@ -962,7 +965,7 @@ function shellSVG(A, front) {
   let spots = ''; for (let i = 0; i < 6; i++) spots += `<ellipse cx="${F(100 + (rng() * 2 - 1) * W * 0.7)}" cy="${F(top + 9 + rng() * 12)}" rx="${F(2 + rng() * 3)}" ry="${F(1.6 + rng() * 2)}" fill="${A.pal.glow}" opacity=".4"/>`;
   return `<path d="${d}" fill="url(#pl-shell)" stroke="#7a6440" stroke-width="3" stroke-linejoin="round" paint-order="stroke"/>${spots}<path d="M${F(100 - W * 0.72)} ${F(top + 9)}Q${F(100 - W * 0.62)} ${F(top + 20)} ${F(100 - W * 0.2)} 194" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity=".7"/>`;
 }
-// elders: a laurel behind them from Lv 9, a warm glow from Lv 7
+// Exalted creatures: a laurel behind them (Elders and up get the warm glow)
 function laurelSVG(A, K) {
   const R = A.R; let q = '';
   for (const s of [-1, 1]) {
@@ -1004,9 +1007,10 @@ function creatureInner(c, rng) {
   if (A.ti >= 3) q.push(`<circle class="pl-pulse" cx="100" cy="${F(K.cy)}" r="${F(R + 44)}" fill="url(#au-${s})"/>`);
   if (A.stage === 'elder') q.push(`<circle cx="100" cy="${F(K.cy)}" r="${F(R + 30)}" fill="url(#pl-elder)"/>`);
   const pr = T === 'Legendary' ? ' stroke="#f5c451" stroke-width="1.5"' : T === 'Mythic' ? ' stroke="#ff7bd0" stroke-opacity=".7" stroke-width="1.5"' : T === 'Epic' ? ' stroke="#b28dff" stroke-opacity=".5" stroke-width="1.5"' : '';
-  q.push(`<ellipse cx="100" cy="203.5" rx="70" ry="11" fill="#090b10"/><ellipse cx="100" cy="200" rx="70" ry="11" fill="url(#pl-plinth)"${pr}/><ellipse cx="100" cy="199.6" rx="67" ry="9.6" fill="none" stroke="#fff" stroke-opacity=".14" stroke-width="1"/>`);
+  q.push(`<g class="pl-base"><ellipse cx="100" cy="203.5" rx="70" ry="11" fill="#090b10"/><ellipse cx="100" cy="200" rx="70" ry="11" fill="url(#pl-plinth)"${pr}/><ellipse cx="100" cy="199.6" rx="67" ry="9.6" fill="none" stroke="#fff" stroke-opacity=".14" stroke-width="1"/>`);
   if (A.ti >= 3) q.push(`<ellipse cx="100" cy="192" rx="${F(R + 14)}" ry="${F(R * 0.3)}" fill="none" stroke="${T === 'Legendary' ? '#f5c451' : T === 'Mythic' ? '#ff7bd0' : '#b28dff'}" stroke-opacity=".45" stroke-width="1.5"/>`);
-  if (A.stage === 'elder' && (c.level || 1) >= 9) q.push(laurelSVG(A, K));
+  q.push('</g>');
+  if (A.exalted) q.push(laurelSVG(A, K));
   q.push(K.float ? `<g opacity=".5"><ellipse cx="100" cy="197" rx="${F(R * 0.55)}" ry="6" fill="url(#pl-cs)"/></g>` : `<ellipse cx="100" cy="197" rx="${F(R * 0.85)}" ry="7.5" fill="url(#pl-cs)"/><ellipse cx="100" cy="196.5" rx="${F(R * 0.45)}" ry="3.5" fill="#000" opacity=".35"/>`);
   const swarm = A.tr.includes('Swarm');
   if (swarm) q.push(drawSwarm(A, K, false));
@@ -1016,26 +1020,20 @@ function creatureInner(c, rng) {
   q.push(`<g transform="translate(100 ${196 - lift}) scale(${k}) translate(-100 -196)"><g class="pl-bob${K.float ? ' pl-float' : ''}"><g class="pl-breathe">`);
   if (A.sick) q.push('<g transform="translate(100 196) scale(1.03 .95) translate(-100 -196)">');
   q.push(`<g transform="rotate(${F(A.tilt)} 100 ${K.float ? F(K.cy) : 196})">`);
+  if (A.ti >= 4 && A.sk !== 'moth') q.push(legendWings(A, K));
   if (SP.back) q.push(SP.back(A, K));
   const ornament = A.other ? CREST[A.other](A, K) : SP.ornament ? SP.ornament(A, K) : '';
-  if (ornament && A.look.orn > 0) { const ok = A.look.orn, hx = K.headTop.x, hy = K.headTop.y + 8; q.push(ok === 1 ? ornament : `<g transform="translate(${F(hx)} ${F(hy)}) scale(${ok}) translate(${F(-hx)} ${F(-hy)})">${ornament}</g>`); }
+  if (ornament && A.look.orn > 0) { const ok = A.look.orn * (A.ti >= 4 ? 1.22 : 1), hx = K.headTop.x, hy = K.headTop.y + 8; q.push(ok === 1 ? ornament : `<g transform="translate(${F(hx)} ${F(hy)}) scale(${ok}) translate(${F(-hx)} ${F(-hy)})">${ornament}</g>`); }
   else if (ornament && (A.sk === 'lumen' || A.sk === 'wisp' || A.sk === 'moth')) { const hx = K.headTop.x, hy = K.headTop.y + 8, ks = A.sk === 'wisp' ? 1 : 0.55; q.push(`<g transform="translate(${F(hx)} ${F(hy)}) scale(${ks}) translate(${F(-hx)} ${F(-hy)})">${ornament}</g>`); }
   q.push(vinylStack(A, K, { inner: SP.inner ? SP.inner(A, K) : null, pattern: patternSVG(A, K), noSpec: A.sk === 'prism', noAO: A.sk === 'wisp' || A.sk === 'lumen', gloss: A.sk === 'hydra', outline: A.sk === 'wisp' ? `url(#wo-${s})` : A.sk === 'lumen' ? darken(b, 0.72) : null }));
   if (A.sick) q.push(`<use href="#b-${s}" fill="#6f8f5a" opacity=".3" style="mix-blend-mode:multiply"/>`);
   if (SP.detail) q.push(SP.detail(A, K));
   q.push(markingsSVG(A, K));
-  if (A.tr.includes('Marathon')) q.push(drawBand(A, K));
   q.push(accessorySVG(A, K, 'body'));
   q.push(SP.face(A, K));
-  q.push(accessorySVG(A, K, 'face'));
   if (SP.front) q.push(SP.front(A, K));
   q.push(drawTraits(A, K));
   q.push(accessorySVG(A, K, 'top'));
-  if (A.ti >= 4) {
-    const acc = A.v && A.v.accessory ? A.v.accessory.key : '';
-    const lift = acc === 'beanie' ? K.hat.w * 1.15 : acc === 'headphones' ? 8 : 0;
-    q.push(crownFor(A, K.headTop.x, K.headTop.y + 4 - lift));
-  }
   if (A.v && A.v.accessory && A.v.accessory.key === 'beanie' && A.sk === 'wisp') q.push(wispFlame(A, K.hat.x, K.hat.y - K.hat.w * 1.3));
   if (T === 'Mythic') { const hx = K.headTop.x, hy = K.headTop.y - 30; q.push(`<g class="pl-float"><circle cx="${F(hx)}" cy="${F(hy)}" r="22" fill="url(#pl-myth)"/><ellipse cx="${F(hx)}" cy="${F(hy)}" rx="16" ry="4.5" fill="none" stroke="#ff7bd0" stroke-width="2.5"/><ellipse cx="${F(hx)}" cy="${F(hy)}" rx="16" ry="4.5" fill="none" stroke="#fff" stroke-width=".8" opacity=".8"/></g>`); }
   q.push('</g>' + (A.sick ? '</g>' : '') + '</g></g>');
@@ -1083,7 +1081,8 @@ function creatureMarkup(c) {
 // every drawing gets its own id suffix, so copies never share defs (deterministic look, unique ids)
 const CROP = { hatchling: '27 62 146 146', juvenile: '19 44 162 162', adult: '13 30 174 174', elder: '13 30 174 174', exalted: '11 26 178 178' };
 function cropBox(c) {
-  if (c.rarity && c.rarity.tier === 'Mythic') return '6 12 188 188'; // the halo floats high
+  if (c.rarity && c.rarity.tier === 'Mythic') return '0 8 200 200'; // the halo floats high, the wings spread wide
+  if (c.rarity && c.rarity.tier === 'Legendary' && !(PV && PV.stageOf(c).key === 'hatchling')) return '2 20 196 196'; // room for the wingspan
   const st = PV ? PV.stageOf(c).key : 'adult';
   if (st === 'hatchling' && c.speciesKey === 'wisp') return '21 38 160 160'; // a wisp floats up out of its shell
   return CROP[st] || CROP.adult;
@@ -1091,7 +1090,7 @@ function cropBox(c) {
 function creatureSVG(c, size, opts) {
   ensurePlDefs();
   const inner = creatureMarkup(c).split('__I__').join('-' + (++artSeq).toString(36));
-  return `<svg class="art${opts && opts.live ? ' live' : ''}${opts && opts.crop ? ' crop' : ''}" viewBox="${opts && opts.crop ? cropBox(c) : '0 18 200 200'}" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${inner}</svg>`;
+  return `<svg class="art${opts && opts.live ? ' live' : ''}${opts && opts.crop ? ' crop' : ''}${opts && opts.bare ? ' bare' : ''}" viewBox="${opts && opts.crop ? cropBox(c) : '0 18 200 200'}" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${inner}</svg>`;
 }
 // ==== ART END ====
 let ART = {};
@@ -1119,19 +1118,24 @@ function ago(ms) {
 }
 function fmtClock(ms) { const s = Math.max(0, Math.round(ms / 1000)); if (s < 60) return s + 's'; const m = Math.floor(s / 60); if (m < 60) return m + 'm ' + (s % 60) + 's'; return Math.floor(m / 60) + 'h ' + (m % 60) + 'm'; }
 const variantOf = (c) => (PV && c ? PV.variantOf(c) : null);
+// the short name ('Vorlisk') for tight spots; the full one ('Vorlisk the Marathon Hydra') stays for the detail view and share card
+const shortName = (c) => (c && (c.name || c.fullName)) || '';
+// a run longer than rules.openSessionMs was a session left open, not machine time: it keeps its signed tier,
+// but it never shows a run length and never ranks among your finest
+const isOpenRun = (c) => !!c && !c.bredBy && (c.durationMs || 0) > ((latest.rules && latest.rules.openSessionMs) || 86400000);
 const hasPower = (m) => !!m && m.week != null; // older servers sent a capped 0-10 score instead
 const stageOf = (c) => (PV && c ? PV.stageOf(c) : { key: 'adult', name: 'Adult' });
 // the real signals a creature grew from, as one honest line
 function originLine(c) {
   if (c.bredBy) return `bred by @${c.bredBy[0]} + @${c.bredBy[1]} from ${c.domain || 'shared'} work`;
-  const parts = [`grew from ${aAn(c.durationLabel)} ${c.durationLabel} run`];
+  const parts = [isOpenRun(c) ? 'hatched from a session left open (not counted as machine time)' : `grew from ${aAn(c.durationLabel)} ${c.durationLabel} run`];
   if (c.toolCalls) parts.push(plural(c.toolCalls, 'tool call'));
   if (c.subagents) parts.push(plural(c.subagents, 'subagent'));
   return parts.join(' · ');
 }
 function shortOrigin(c) {
   if (c.bredBy) return 'cross-fed · ' + (c.domain || 'shared') + ' work';
-  return [c.durationLabel ? c.durationLabel + ' run' : '', c.toolCalls ? plural(c.toolCalls, 'tool') : '', c.subagents ? plural(c.subagents, 'subagent') : ''].filter(Boolean).join(' · ');
+  return [isOpenRun(c) ? 'session left open' : c.durationLabel ? c.durationLabel + ' run' : '', c.toolCalls ? plural(c.toolCalls, 'tool') : '', c.subagents ? plural(c.subagents, 'subagent') : ''].filter(Boolean).join(' · ');
 }
 const skillName = (k) => { const s = latest.skills && latest.skills.list.find((x) => x.key === k); return s ? s.name : k.charAt(0).toUpperCase() + k.slice(1); };
 // every gain a run earned: its own skills plus what it earned against your history (when the server sent it)
@@ -1170,8 +1174,8 @@ function tileHTML(c, o) {
   return `<div class="${cls}" style="--tier:${c.rarity.chip}" data-id="${escapeXml(c.id)}" data-k="${tileKey(c)}">
     <div class="t-top"><span class="rchip" style="color:${c.rarity.chip}">${c.rarity.tier}</span><span class="t-tag" title="${c.att ? 'signed · verifiable · fingerprint ' + escapeXml(c.att.fp) : 'seed serial'}">${tagOf(c)}${c.att ? '<i class="verified inline">✓</i>' : ''}</span></div>
     <div class="tile-art">${art}${v && v.shiny ? '<span class="shinychip" title="Shiny: about 1 in 64">✦ Shiny</span>' : ''}<button class="tsave" type="button" title="Save this creature's share card" aria-label="Save share card">${SAVE_IC}<span>Card</span></button></div>
-    <div class="nm">${escapeXml(c.fullName)}</div>
-    <div class="var">${escapeXml(v ? v.full : c.speciesName)}</div>
+    <div class="nm" title="${escapeXml(c.fullName)}">${escapeXml(shortName(c))}</div>
+    <div class="var">${escapeXml(c.speciesName + (v ? ' · ' + v.full : ''))}</div>
     <div class="sub">${escapeXml(shortOrigin(c))}</div>
     <div class="lvl"><span><i class="stdot st-${st.key}"></i>${escapeXml(lvLine(c))}</span><div class="xp"><i style="width:${Math.round(xpPct(c) * 100)}%"></i></div></div>
     ${care}</div>`;
@@ -1180,8 +1184,8 @@ function mcardHTML(c, origin) {
   return `<div class="mcard" ${c.id ? `data-id="${escapeXml(c.id)}"` : ''}>
     <span class="rchip" style="color:${c.rarity.chip}">${c.rarity.tier}</span>
     ${creatureSVG(c, 118)}
-    <div class="nm">${escapeXml(c.fullName)}</div>
-    <div class="origin">${escapeXml(origin)}</div></div>`;
+    <div class="nm" title="${escapeXml(c.fullName)}">${escapeXml(shortName(c))}</div>
+    <div class="origin">${escapeXml(c.speciesName + (variantOf(c) ? ' · ' + variantOf(c).name : ''))}${origin ? ' · ' + escapeXml(origin) : ''}</div></div>`;
 }
 function findCreature(id) { return latest.creatures.find((c) => c.id === id) || ((bestiaryData && bestiaryData.breeds) || []).find((c) => c.id === id) || null; }
 // keyed update of a grid of tiles: new creatures slide in, changed ones are redrawn, nothing else is touched
@@ -1306,12 +1310,15 @@ function goalPanel(en) {
   const g = en.goal, pct = Math.min(1, g.progress / Math.max(1, g.target)), met = g.met;
   const unit = g.type === 'runs' ? (g.target === 1 ? 'run' : 'runs') : 'min';
   const ring = ringSVG(112, pct, { color: met ? '#f5c451' : '#6ee7a5', key: met ? 'paragon' : '', ring: met ? 'gold' : null }, '', { sw: 10, cls: met ? 'ring-met' : '' });
-  const opt = ([t, n]) => { const sel = t === 'auto' ? !!g.auto : !g.auto && t === g.type && n === g.target; return `<option value="${t}:${n}" ${sel ? 'selected' : ''}>${t === 'auto' ? `Auto · median ${fmtN(g.median || g.target)} runs` : `${n} ${t === 'runs' ? 'runs' : 'machine-min'} a day`}</option>`; };
+  // auto follows your real median day, clamped to 3..100 runs: say so instead of calling the clamp a median
+  const med = Math.round(Number(g.median) || 0), runsN = (n) => plural(n, 'run');
+  const autoLabel = !g.auto || med === g.target ? `Auto · median ${runsN(med || g.target)}` : `Auto · ${runsN(g.target)} (${med < g.target ? 'min' : 'max'})`;
+  const opt = ([t, n]) => { const sel = t === 'auto' ? !!g.auto : !g.auto && t === g.type && n === g.target; return `<option value="${t}:${n}" ${sel ? 'selected' : ''}>${t === 'auto' ? escapeXml(autoLabel) : `${n} ${t === 'runs' ? 'runs' : 'machine-min'} a day`}</option>`; };
   const custom = g.auto || GOALS.some(([t, n]) => t === g.type && n === g.target) ? '' : `<option selected value="${g.type}:${g.target}">${g.target} ${g.type === 'runs' ? 'runs' : 'machine-min'} a day</option>`;
   const left = g.target - g.progress;
   return `<div class="goal ${met ? 'met' : ''}"><div class="goal-ring">${ring}<div class="goal-num"><b>${fmtN(g.progress)}</b><span>of ${fmtN(g.target)} ${unit}</span></div></div>
     <div class="goal-txt"><span class="eyebrow">Daily goal${g.auto ? ' · auto' : ''}</span><h3>${met ? 'Goal met today' : g.progress ? `${fmtN(left)} ${g.type === 'runs' ? 'more ' + (left === 1 ? 'run' : 'runs') : 'more machine-min'} to go` : 'Nothing hatched yet today'}</h3>
-    <div class="note">${g.auto ? `Set from your median day: ${plural(g.median || 0, 'run')}` : `Today: ${plural(en.today.runs, 'run')} · ${fmtN(en.today.minutes)} machine-min`}</div>
+    <div class="note">${g.auto ? (med === g.target ? `Set from your median day: ${runsN(med)}` : (med ? `Your median day is ${runsN(med)}, so the auto goal sits at its ${med < g.target ? 'minimum' : 'maximum'} of ${runsN(g.target)}` : `No past days to take a median from yet, so the auto goal starts at its minimum of ${runsN(g.target)}`)) : `Today: ${runsN(en.today.runs)} · ${fmtN(en.today.minutes)} machine-min`}</div>
     <select id="goalsel" class="sel" aria-label="daily goal">${custom}${GOALS.map(opt).join('')}</select></div></div>`;
 }
 function streakPanel(en) {
@@ -1360,7 +1367,7 @@ function sec_home() {
   const rw = en && en.rarestWeek ? findCreature(en.rarestWeek.creatureId) : null;
   const wg = en && en.weekGains && en.weekGains.length ? en.weekGains : null, wmax = wg ? Math.max(...wg.map((g) => g.xp)) : 1;
   const week = `<div class="panel weekp"><div class="p-head"><h2>This week</h2><span class="note link" data-go="skills">all skills →</span></div>
-    ${rw ? `<div class="rw link-c" data-id="${escapeXml(rw.id)}" style="--tier:${rw.rarity.chip}">${creatureSVG(rw, 84, { live: true })}<div><span class="eyebrow">Rarest this week</span><b>${escapeXml(rw.fullName)}</b><span><span style="color:${rw.rarity.chip}">${rw.rarity.tier}</span> · ${escapeXml(en.rarestWeek.durationLabel)} run · ${shortDate(rw.bornAt)}</span></div></div>` : ''}
+    ${rw ? `<div class="rw link-c" data-id="${escapeXml(rw.id)}" style="--tier:${rw.rarity.chip}">${creatureSVG(rw, 84, { live: true })}<div><span class="eyebrow">Rarest this week</span><b>${escapeXml(shortName(rw))} <em class="rw-sp">${escapeXml(rw.speciesName)}</em></b><span><span style="color:${rw.rarity.chip}">${rw.rarity.tier}</span> · ${escapeXml(en.rarestWeek.durationLabel)} run · ${shortDate(rw.bornAt)}</span></div></div>` : ''}
     ${wg ? wg.map((g) => { const s = latest.skills.list.find((x) => x.key === g.key); return `<div class="wk-row"><span>${escapeXml(g.name)}</span><b>+${fmtN(g.xp)} xp</b><div class="wk-bar"><i style="width:${Math.round((g.xp / wmax) * 100)}%;background:${s ? s.band.color : 'var(--green)'}"></i></div></div>`; }).join('') : '<p class="note">No skill gains in the last 7 days.</p>'}</div>`;
   const os = latest.stats.openSessions;
   const stats = `<div class="statstrip"><div class="stat"><b>${fmtN(cs.length)}</b><span>creatures</span></div><div class="stat"><b>${latest.stats.machineHours}</b><span>hours Claude worked</span></div><div class="stat"><b>${latest.skills ? fmtN(latest.skills.totalLevel) : '—'}</b><span>total level</span></div>${hasPower(latest.me) ? `<div class="stat"><b>${fmtN(latest.me.score)}</b><span>power</span></div><div class="stat"><b>${fmtN(latest.me.week)}</b><span>points this week</span></div>` : ''}
@@ -1375,7 +1382,7 @@ function sec_home() {
 
 // the home strip: your finest (rarest and most raised) or the newest hatches
 let homeStrip = (() => { try { return localStorage.getItem('pol_strip') === 'newest' ? 'newest' : 'finest'; } catch { return 'finest'; } })();
-const stripList = () => (homeStrip === 'newest' ? latest.creatures.slice(0, 10) : latest.creatures.slice().sort(byFeatured).slice(0, 10));
+const stripList = () => (homeStrip === 'newest' ? latest.creatures.slice(0, 10) : latest.creatures.filter((c) => !isOpenRun(c)).sort(byFeatured).slice(0, 10));
 
 // ---- section: collection (filters, sort, paging; tiles update in place) ----
 const COLL_DEFAULT = { species: 'all', tier: 'all', trait: 'all', look: 'all', sort: 'featured', q: '', shown: 60 };
@@ -1383,7 +1390,7 @@ let coll = (() => { try { return Object.assign({}, COLL_DEFAULT, JSON.parse(loca
 let collOpen = false;
 function saveColl() { try { const { shown, ...keep } = coll; localStorage.setItem('pol_coll2', JSON.stringify(keep)); } catch {} }
 // Featured: the rarest and most raised first (rarity, Shiny and editions from variants.js, plus two points a level)
-const featScore = (c) => (PV ? PV.rankScore(c) : c.rarity.index * 10) + 2 * (c.level || 1);
+const featScore = (c) => (isOpenRun(c) ? -1000 : 0) + (PV ? PV.rankScore(c) : c.rarity.index * 10) + (c.level || 1) / 3;
 const byFeatured = (a, b) => featScore(b) - featScore(a) || (b.durationMs || 0) - (a.durationMs || 0) || b.bornAt - a.bornAt;
 const byRarest = (a, b) => (PV ? PV.rarer(a, b) : b.rarity.index - a.rarity.index || (b.durationMs || 0) - (a.durationMs || 0));
 function collList() {
@@ -1493,7 +1500,7 @@ function dexNext() {
   return out.sort((a, b) => a.w - b.w);
 }
 let dexOpen = null;
-function silhouette(sk, tier) { return `<div class="sil">${creatureSVG(demoCreature('dex-' + sk + tier, sk, tier, { salt: 'dex', level: 5, vo: { colorway: 'classic', accessory: null, pattern: null, expression: 'calm' } }), 64)}<span>?</span></div>`; }
+function silhouette(sk, tier) { return `<div class="sil">${creatureSVG(demoCreature('dex-' + sk + tier, sk, tier, { salt: 'dex', level: 15, vo: { colorway: 'classic', accessory: null, pattern: null, expression: 'calm' } }), 64)}<span>?</span></div>`; }
 function sec_bestiary() {
   if (!PV) return `<p class="empty">The Dex needs /variants.js. Reload the page.</p>`;
   const { found, slots } = dexData(), sum = dexSummary(), pct = found.size / (slots.length || 1);
@@ -1515,7 +1522,7 @@ function sec_bestiary() {
       return `<button class="dg-sp ${dexOpen === sk ? 'open' : ''}" data-dex="${sk}"><b>${SPECIES[sk].name}</b><span>${have}/${tot}</span></button>${row}${dexOpen === sk ? `<div class="dg-detail">${dexDetail(sk)}</div>` : ''}`;
     }).join('')}</div></div>`;
   const specials = `<div class="panel" style="margin-top:16px"><div class="p-head"><h2>Special editions</h2><span class="note">Shiny: about 1 in ${PV.SHINY_ODDS} · Legendary editions: Gold Chrome or Holo</span></div><div class="dex-spec">${PV.SPECIES_KEYS.map((sk) => {
-      const cell = (id, label) => { const c = found.get(id); return `<div class="ds-c ${c ? 'got' : ''}" ${c ? `data-id="${escapeXml(c.id)}"` : ''} title="${c ? escapeXml(c.fullName) : label + ': not found yet'}">${c ? creatureSVG(c, 56) : `<div class="sil small">${creatureSVG(demoCreature('dsx-' + sk, sk, 'Rare', { salt: 'dex', level: 5, vo: { colorway: 'classic', accessory: null, pattern: null, expression: 'calm' } }), 56)}<span>?</span></div>`}<em>${label}</em></div>`; };
+      const cell = (id, label) => { const c = found.get(id); return `<div class="ds-c ${c ? 'got' : ''}" ${c ? `data-id="${escapeXml(c.id)}"` : ''} title="${c ? escapeXml(c.fullName) : label + ': not found yet'}">${c ? creatureSVG(c, 56) : `<div class="sil small">${creatureSVG(demoCreature('dsx-' + sk, sk, 'Rare', { salt: 'dex', level: 15, vo: { colorway: 'classic', accessory: null, pattern: null, expression: 'calm' } }), 56)}<span>?</span></div>`}<em>${label}</em></div>`; };
       return `<div class="ds-sp"><b>${SPECIES[sk].name}</b>${cell('s:' + sk, 'Shiny')}${cell('m:' + sk + ':gold', 'Gold')}${cell('m:' + sk + ':holo', 'Holo')}</div>`;
     }).join('')}</div></div>`;
   const next = sum.next.slice(0, 6);
@@ -1533,13 +1540,13 @@ function dexDetail(sk) {
 
 // ---- section: how it works (rules drawn by the real renderer; your own runs as the examples) ----
 const RARITY_RULES = [['Common', 'up to 20s'], ['Uncommon', 'up to 90s'], ['Rare', 'up to 5m'], ['Epic', 'up to 20m'], ['Legendary', 'over 20m'], ['Mythic', '2h+ run with 10+ subagents, a 30-day streak, or cross-feeding']];
-const RARITY_ADDS = { Common: 'glossy vinyl, a colorway and a face of its own', Uncommon: '+ a pattern and an accessory', Rare: '+ metal trim and glowing eyes', Epic: '+ glowing markings and an aura', Legendary: '+ Gold Chrome or Holo body, a crown, star eyes', Mythic: '+ an animated iridescent body and a halo' };
+const RARITY_ADDS = { Common: 'glossy vinyl, a colorway and a face of its own', Uncommon: '+ a pattern and an accessory', Rare: '+ metal trim and glowing eyes', Epic: '+ glowing markings and an aura', Legendary: '+ Gold Chrome or Holo body, its own wings, bigger crest, star eyes', Mythic: '+ an animated iridescent body and a halo' };
 const SPECIES_RULES = [['cog', 'Engineering', 'code files, build and package commands'], ['scholar', 'Research', 'web search and fetch'], ['moth', 'Writing', 'docs and text files'], ['prism', 'Design', 'design tools and image files'], ['lumen', 'Video', 'video tools, ffmpeg, media files'], ['hydra', 'Outreach', 'mail, LinkedIn, CRM and chat tools'], ['wisp', 'General', 'browser automation, or nothing classifiable']];
 function sec_proof() {
   const mk = (latest.me && NAME2KEY[latest.me.topSpecies]) || 'hydra';
   const pin = { colorway: 'classic', expression: 'grin' };
-  const rarity = `<div class="rar-ladder">${RARITY_RULES.map(([t, rule]) => `<div class="rar ${t === 'Mythic' ? 'myth' : ''}"><div class="rar-art">${creatureSVG(demoCreature('rule-' + t, mk, t, { salt: 'rule', level: 6, vo: Object.assign({ accessory: TIERI[t] >= 1 ? 'headphones' : null, pattern: TIERI[t] >= 1 ? 'spots' : null }, pin) }), 112)}</div><span class="chip" style="color:${TIERC[t]}">${t}</span><div class="note"><b>${rule}</b><br>${RARITY_ADDS[t]}</div></div>`).join('')}</div>`;
-  const species = `<div class="sp-grid">${SPECIES_RULES.map(([k, d, sig]) => `<div class="sp">${creatureSVG(demoCreature('sp-' + k, k, 'Rare', { salt: 'sp', level: 6, vo: { colorway: 'classic', expression: 'grin' } }), 64)}<div><b>${SPECIES[k].name} <span class="note">· ${d}</span></b><span>${sig}</span></div></div>`).join('')}</div>`;
+  const rarity = `<div class="rar-ladder">${RARITY_RULES.map(([t, rule]) => `<div class="rar ${t === 'Mythic' ? 'myth' : ''}"><div class="rar-art">${creatureSVG(demoCreature('rule-' + t, mk, t, { salt: 'rule', level: 15, vo: Object.assign({ accessory: TIERI[t] >= 1 ? 'headphones' : null, pattern: TIERI[t] >= 1 ? 'spots' : null }, pin) }), 112)}</div><span class="chip" style="color:${TIERC[t]}">${t}</span><div class="note"><b>${rule}</b><br>${RARITY_ADDS[t]}</div></div>`).join('')}</div>`;
+  const species = `<div class="sp-grid">${SPECIES_RULES.map(([k, d, sig]) => `<div class="sp">${creatureSVG(demoCreature('sp-' + k, k, 'Rare', { salt: 'sp', level: 15, vo: { colorway: 'classic', expression: 'grin' } }), 64)}<div><b>${SPECIES[k].name} <span class="note">· ${d}</span></b><span>${sig}</span></div></div>`).join('')}</div>`;
   // a vertical flow: it never wraps into a dangling arrow, at any width
   const hooks = `<ol class="hooks">
     <li class="hook"><b>UserPromptSubmit</b><span>egg laid, the clock starts</span></li>
@@ -1557,11 +1564,11 @@ function sec_proof() {
   const examples = longest ? `<div class="hero2">${exCard(longest, 'Your longest real run')}${failed ? exCard(failed, 'A run that really failed') : `<div class="hcard"><span class="eyebrow">When a run fails</span><div class="flow">${eggSVG(77, '#e8615b', 60)}<span class="arrow">→</span>${creatureSVG(demoCreature('Example', 'cog', 'Rare', { status: 'sick', salt: 'bad', level: 1 }), 104)}</div><p class="note">None of your runs has ended in an error yet. One that does hatches sick with a scar, and heals once later runs of the same kind raise it. Drawn here as an example, not a real run.</p></div>`}</div>` : `<p class="note">Your own runs appear here as examples once the first one hatches.</p>`;
 
   // growth: the same creature at every stage (a pure function of its seed and level)
-  const stages = [[1, 'Hatchling', 'Lv 1-2 · still in its shell'], [3, 'Juvenile', 'Lv 3-4 · ornaments growing in'], [5, 'Adult', 'Lv 5-6 · fully grown'], [7, 'Elder', 'Lv 7-8 · pale brows, whiskers, a warm glow'], [9, 'Exalted', 'Lv 9-10 · white brows and a golden laurel']];
+  const stages = [[1, 'Hatchling', 'Lv 1-5 · still in its shell'], [6, 'Juvenile', 'Lv 6-14 · ornaments growing in'], [15, 'Adult', 'Lv 15-27 · fully grown'], [28, 'Elder', 'Lv 28-39 · bushy brows, whiskers, a warm glow'], [40, 'Exalted', 'Lv 40-60 · snow-white brows and a golden laurel']];
   const ladder = stages.map(([lv, name, sub]) => `<div class="rung">${creatureSVG(demoCreature('Ladder', mk, 'Epic', { salt: 'L', level: lv, vo: { colorway: 'classic', expression: 'grin', accessory: 'bow' } }), 116)}<div class="rname">${name}</div><div class="rl">${sub}</div></div>`).join('');
 
   // one of a kind: the same species and rarity, different seeds
-  const variety = `<div class="variety">${[0, 1, 2, 3, 4, 5, 6, 7].map((i) => { const c = demoCreature('variety-' + i, mk, 'Rare', { salt: 'v' + i, level: 6 }); const v = variantOf(c); return `<div class="vr">${creatureSVG(c, 92)}<span>${escapeXml(v ? v.full : '')}</span></div>`; }).join('')}</div>`;
+  const variety = `<div class="variety">${[0, 1, 2, 3, 4, 5, 6, 7].map((i) => { const c = demoCreature('variety-' + i, mk, 'Rare', { salt: 'v' + i, level: 15 }); const v = variantOf(c); return `<div class="vr">${creatureSVG(c, 92)}<span>${escapeXml(v ? v.full : '')}</span></div>`; }).join('')}</div>`;
 
   // the most raised creature, with its OWN facts; your account totals sit in their own row below
   const mine = latest.creatures.slice().sort((a, b) => (b.level || 1) - (a.level || 1) || (b.xp || 0) - (a.xp || 0) || byRarest(a, b))[0];
@@ -1600,7 +1607,7 @@ function sec_proof() {
     <div class="panel"><div class="p-head"><h2>Species is what the run did</h2></div>${species}<p class="note">Read from tool names, file extensions and command names only. Never prompts, paths, file contents or arguments.</p></div>
     <div class="panel"><div class="p-head"><h2>Built on Claude Code hooks</h2></div>${hooks}<div class="divider"></div><span class="eyebrow">Examples from your own runs</span><div style="margin-top:12px">${examples}</div></div>
   </div>
-  <div class="panel" style="margin-top:16px"><div class="p-head"><h2>Raised by the runs that follow</h2><span class="note">each good run raises the 20 most recent creatures of its kind, and they grow up</span></div><div class="ladder">${ladder}</div></div>
+  <div class="panel" style="margin-top:16px"><div class="p-head"><h2>Raised by the runs that follow</h2><span class="note">each good run raises the earlier creatures of its kind, on 60 levels that slow as they climb</span></div><div class="ladder">${ladder}</div></div>
   <div class="panel" style="margin-top:16px">${survivor}</div>
   ${prov}`;
 }
@@ -1615,7 +1622,7 @@ const SKILL_GLYPH = {
   shipping: { accessory: 'headphones', expression: 'grin' }, debugging: { accessory: 'goggles', expression: 'smug' },
 };
 const tierForLevel = (L) => (L >= 100 ? 'Mythic' : L >= 70 ? 'Legendary' : L >= 50 ? 'Epic' : L >= 30 ? 'Rare' : L >= 10 ? 'Uncommon' : 'Common');
-function skillGlyph(s, salt) { return demoCreature('skill-' + s.key, s.species, tierForLevel(s.level), { salt: salt || 'sk', level: isLocked(s) ? 5 : Math.max(5, Math.min(10, 4 + Math.floor(s.level / 12))), vo: Object.assign({ colorway: 'classic', expression: 'grin' }, SKILL_GLYPH[s.key] || {}) }); }
+function skillGlyph(s, salt) { return demoCreature('skill-' + s.key, s.species, tierForLevel(s.level), { salt: salt || 'sk', level: isLocked(s) ? 15 : Math.max(15, Math.min(45, 15 + Math.floor(s.level / 4))), vo: Object.assign({ colorway: 'classic', expression: 'grin' }, SKILL_GLYPH[s.key] || {}) }); }
 function sparkSVG(week, color) {
   const w = 84, h = 22, mx = Math.max(1, ...week), pts = week.map((v, i) => [4 + (i * (w - 8)) / 6, h - 4 - (v / mx) * (h - 8)]);
   return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="${pathOf(pts, false)}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" opacity=".7"/>${pts.map(([x, y], i) => `<circle cx="${F(x)}" cy="${F(y)}" r="${week[i] > 0 ? 2.2 : 1.4}" fill="${week[i] > 0 ? color : '#3a3d4a'}"/>`).join('')}</svg>`;
@@ -1680,7 +1687,7 @@ function sec_skills() {
   const ms = (sk.milestones || []).slice(0, 14);
   const miles = ms.length ? `<div class="panel" style="margin-top:16px"><div class="p-head"><h2>Milestones</h2><span class="note">replayed from your real runs</span></div><div class="miles-wrap at-start"><button type="button" class="mscroll prev" data-ms="-1" aria-label="earlier milestones">‹</button><div class="miles" id="miles">${ms.map((m) => `<div class="mile ${m.creatureId ? 'link-c' : ''}" ${m.creatureId ? `data-id="${escapeXml(m.creatureId)}"` : ''} style="--mc:${m.color || (m.kind === 'legendary' ? '#f5c451' : m.kind === 'mythic' ? '#ff7bd0' : m.kind === 'shiny' ? '#7bf0ff' : m.kind === 'streak' ? '#ff9a3d' : m.kind === 'total' ? '#b28dff' : '#67a8f0')}"><i></i><b>${escapeXml(m.text)}</b><span>${shortDate(m.at)}</span></div>`).join('')}</div><button type="button" class="mscroll next" data-ms="1" aria-label="more milestones">›</button></div></div>` : '';
   // the band ladder: every band by name and level, how many of your skills sit in it, your signature skill's band lit
-  const bands = sk.bands || [['novice', 'Novice', 1, '#8b90a0'], ['apprentice', 'Apprentice', 10, '#7ddc6a'], ['journeyman', 'Journeyman', 20, '#2fd3b5'], ['adept', 'Adept', 30, '#4aa8ff'], ['expert', 'Expert', 40, '#7f7cff'], ['master', 'Master', 50, '#c06cff'], ['grandmaster', 'Grandmaster', 60, '#ff5fb4'], ['virtuoso', 'Virtuoso', 70, '#ff6a5c'], ['legend', 'Legend', 80, '#ff9a2e'], ['mythic', 'Mythic', 90, '#ff8ad8'], ['paragon', 'Paragon', 99, '#f5c451'], ['ascendant', 'Ascendant', 100, '#ffe3a0'], ['transcendent', 'Transcendent', 110, '#9ff3ff'], ['apex', 'Apex', 120, '#ffffff']].map(([key, name, from, color]) => ({ key, name, from, color }));
+  const bands = sk.bands || [['novice', 'Novice', 1, '#8b90a0'], ['apprentice', 'Apprentice', 10, '#7ddc6a'], ['journeyman', 'Journeyman', 20, '#2fd3b5'], ['adept', 'Adept', 30, '#4aa8ff'], ['expert', 'Expert', 40, '#7f7cff'], ['master', 'Master', 50, '#c06cff'], ['grandmaster', 'Grandmaster', 60, '#ff5fb4'], ['virtuoso', 'Virtuoso', 70, '#ff6a5c'], ['luminary', 'Luminary', 80, '#ff9a2e'], ['paragon', 'Paragon', 90, '#ff8ad8'], ['ascendant', 'Ascendant', 100, '#ffe3a0'], ['transcendent', 'Transcendent', 110, '#9ff3ff'], ['apex', 'Apex', 120, '#ffffff']].map(([key, name, from, color]) => ({ key, name, from, color }));
   const inBand = {}; live.forEach((s) => (inBand[s.band.key] = (inBand[s.band.key] || 0) + 1));
   const bandKey = `<div class="band-ladder">${bands.map((b) => { const n = inBand[b.key] || 0, cur = b.key === top.band.key; return `<div class="bl ${n ? 'has' : ''} ${cur ? 'cur' : ''}" style="--c:${b.color}" title="${escapeXml(b.name)}: from Lv ${b.from}${n ? ` · ${plural(n, 'of your skills', 'of your skills')} here` : ''}"><i></i><b>${escapeXml(b.name)}</b><span>Lv ${b.from}${n ? ` · <em>${n}</em>` : ''}</span></div>`; }).join('')}</div>`;
   const groups = ['work', 'craft', 'habits', 'style'].map((g) => { const list = sk.list.filter((s) => s.group === g); if (!list.length) return ''; const lockedN = list.filter(isLocked).length; return `<div class="sk-group"><div class="sk-ghead"><h2>${GROUP_INFO[g][0]}</h2><span class="note">${GROUP_INFO[g][1]}${lockedN ? ` · ${lockedN} locked` : ''}</span></div><div class="skill-grid">${list.slice().sort((a, b) => (isLocked(a) ? 1 : 0) - (isLocked(b) ? 1 : 0)).map(skillCard).join('')}</div></div>`; }).join('');
@@ -1711,7 +1718,7 @@ function recordsHTML() {
   const en = latest.engagement, r = en && en.records; if (!r) return '';
   const lr = r.longestRun ? findCreature(r.longestRun.creatureId) : null, ms = r.mostSubagents ? findCreature(r.mostSubagents.creatureId) : null;
   // the same ranking the server uses for stats.rarest (variants.js)
-  const rarestC = (latest.stats && latest.stats.rarest && latest.stats.rarest.id && findCreature(latest.stats.rarest.id)) || latest.creatures.filter((c) => !c.bredBy).sort(byRarest)[0];
+  const rarestC = (latest.stats && latest.stats.rarest && latest.stats.rarest.id && findCreature(latest.stats.rarest.id)) || latest.creatures.filter((c) => !c.bredBy && !isOpenRun(c)).sort(byRarest)[0];
   const wkPct = r.bestWeek && r.bestWeek.points ? Math.min(1, (r.thisWeek || 0) / r.bestWeek.points) : 0;
   const card = (label, val, sub, c) => `<div class="rec ${c ? 'link-c' : ''}" ${c ? `data-id="${escapeXml(c.id)}"` : ''}>${c ? creatureSVG(c, 58, { crop: true }) : ''}<div><span class="eyebrow">${label}</span><b class="num">${val}</b><span>${sub}</span></div></div>`;
   return `<div class="panel tinted"><div class="p-head"><h2>Personal records</h2><span class="note">from your signed runs</span></div>
@@ -1753,10 +1760,15 @@ function raceHTML() {
 }
 // this week's podium: your three rarest hatches of the last 7 days
 function podiumHTML() {
-  const wk = latest.creatures.filter((c) => !c.bredBy && c.bornAt >= Date.now() - 7 * 86400000).sort(byRarest).slice(0, 3);
+  const wk = latest.creatures.filter((c) => !c.bredBy && !isOpenRun(c) && c.bornAt >= Date.now() - 7 * 86400000).sort(byRarest).slice(0, 3);
   if (!wk.length) return `<div class="panel podium-p"><div class="p-head"><h2>This week's podium</h2></div><p class="note">Nothing hatched in the last 7 days. Your next run takes first place.</p></div>`;
   const order = [wk[1], wk[0], wk[2]], place = [2, 1, 3];
-  return `<div class="panel podium-p"><div class="p-head"><h2>This week's podium</h2><span class="note">your rarest hatches of the last 7 days</span></div><div class="podium">${order.map((c, i) => c ? `<div class="pod p${place[i]} link-c" data-id="${escapeXml(c.id)}" style="--tier:${c.rarity.chip}"><div class="pod-art">${creatureSVG(c, place[i] === 1 ? 150 : 112, { crop: true, live: place[i] === 1 })}</div><b>${escapeXml(c.fullName)}</b><span><span style="color:${c.rarity.chip}">${(variantOf(c) && variantOf(c).shiny ? 'Shiny ' : '') + c.rarity.tier}</span> · ${escapeXml(c.durationLabel || '')}</span><div class="step"><em>${place[i]}</em></div></div>` : '<div class="pod empty"></div>').join('')}</div></div>`;
+  // each creature stands on its own stepped plinth (gold, silver, bronze); its short name and real run time sit under it
+  const pod = (c, p) => `<div class="pod p${p} link-c" data-id="${escapeXml(c.id)}" style="--tier:${c.rarity.chip}" title="${escapeXml(c.fullName)}">
+    <div class="pod-art">${creatureSVG(c, p === 1 ? 142 : 112, { crop: true, bare: true, live: p === 1 })}</div>
+    <div class="plinth"><i class="cap"></i><div class="face"><em>${p}</em></div></div>
+    <b>${escapeXml(shortName(c))}</b><span><span style="color:${c.rarity.chip}">${(variantOf(c) && variantOf(c).shiny ? 'Shiny ' : '') + c.rarity.tier}</span> · ${escapeXml(c.durationLabel || '')} run</span></div>`;
+  return `<div class="panel podium-p"><div class="p-head"><h2>This week's podium</h2><span class="note">your rarest hatches of the last 7 days</span></div><div class="podium">${order.map((c, i) => (c ? pod(c, place[i]) : '<div class="pod empty"></div>')).join('')}</div></div>`;
 }
 function sec_board() {
   if (!boardData.length) return `<p class="empty">No operators with creatures yet.</p>`;
@@ -1777,7 +1789,7 @@ function sec_board() {
 // ---- cross-feed breeding (a panel inside the Dex) ----
 function crossfeedPanel() {
   const ops = (bestiaryData && bestiaryData.operators) || [];
-  if (ops.length < 2) return `<div class="cf-empty">${creatureSVG(Object.assign(demoCreature('cf-wait', 'moth', 'Mythic', { salt: 'cf', level: 6 }), { parents: ['Moth', 'Prism'] }), 110)}<p class="note">Breeding needs two operators whose real, signed work landed in the same domain, and it always makes a Mythic. ${ops.length ? 'You are the only operator here so far.' : 'No operators have creatures yet.'} When a second operator joins this server, hybrids appear here on their own.</p></div>`;
+  if (ops.length < 2) return `<div class="cf-empty">${creatureSVG(Object.assign(demoCreature('cf-wait', 'moth', 'Mythic', { salt: 'cf', level: 15 }), { parents: ['Moth', 'Prism'] }), 110)}<p class="note">Breeding needs two operators whose real, signed work landed in the same domain, and it always makes a Mythic. ${ops.length ? 'You are the only operator here so far.' : 'No operators have creatures yet.'} When a second operator joins this server, hybrids appear here on their own.</p></div>`;
   const opt = (sel) => ops.map((o) => `<option value="${escapeXml(o.handle)}" ${o.handle === sel ? 'selected' : ''}>@${escapeXml(o.handle)}${o.you ? ' (you)' : o.sample ? ' (sample)' : ''}</option>`).join('');
   const r = cfState.result;
   let out;
@@ -1802,13 +1814,58 @@ async function doCrossfeed() {
 }
 
 // ---- section: lounge (open only while an agent is really running) ----
+// the room itself: one SVG (wall, wainscot, fireplace, window, sconces, plank floor and rug), lit while agents run
+function loungeRoomSVG(open) {
+  const W = 1000, H = 470, FY = 330, r = mulberry32(4855);
+  const warm = open ? 1 : 0;
+  let planks = ''; for (let i = -14; i <= 14; i++) planks += `M${500 + i * 22} ${FY}L${500 + i * 120} ${H}`;
+  let rows = ''; for (const y of [346, 366, 392, 424, 462]) rows += `M0 ${y}H${W}`;
+  let panels = ''; for (let x = 20; x < W; x += 140) panels += `<rect x="${x}" y="256" width="110" height="58" rx="4" fill="none" stroke="#000" stroke-opacity=".28" stroke-width="2"/><rect x="${x + 1}" y="257" width="110" height="58" rx="4" fill="none" stroke="#fff" stroke-opacity=".05"/>`;
+  let stars = ''; for (let i = 0; i < 14; i++) stars += `<circle cx="${F(786 + r() * 118)}" cy="${F(96 + r() * 140)}" r="${F(0.6 + r() * 1.2)}" fill="#fff" opacity="${F(0.4 + r() * 0.6)}"/>`;
+  let stones = ''; for (let y = 182; y < 326; y += 18) { const off = ((y - 182) / 18) % 2 ? 22 : 0; for (let x = 66 + off; x < 246; x += 44) stones += `<rect x="${x}" y="${y}" width="${Math.min(40, 246 - x)}" height="15" rx="3"/>`; }
+  const flame = (x, h, d) => `<path class="ls-flame" style="animation-delay:${d}s" d="M${x} 318C${x - 16} 300 ${x - 10} ${318 - h * 0.6} ${x} ${318 - h}C${x + 4} ${318 - h * 0.62} ${x + 16} ${318 - h * 0.5} ${x + 12} 304C${x + 10} 312 ${x + 6} 318 ${x} 318Z" fill="url(#lr-fire)"/>`;
+  const candle = (x, y, h) => `<rect x="${x - 4}" y="${y - h}" width="8" height="${h}" rx="2" fill="#efe3c6"/><rect x="${x - 4}" y="${y - h}" width="3" height="${h}" rx="1.5" fill="#fff" opacity=".5"/>` + (open ? `<path class="ls-flame" d="M${x} ${y - h - 11}C${x + 4} ${y - h - 5} ${x + 4} ${y - h - 1} ${x} ${y - h - 1}C${x - 4} ${y - h - 1} ${x - 4} ${y - h - 5} ${x} ${y - h - 11}Z" fill="#ffd27a"/>` : `<path d="M${x} ${y - h}v-4" stroke="#2a2a2a" stroke-width="1.4"/>`);
+  const sconce = (x) => `${open ? `<circle class="ls-halo" cx="${x}" cy="128" r="70" fill="url(#lr-halo)"/>` : ''}<path d="M${x - 14} 162H${x + 14}L${x + 8} 172H${x - 8}Z" fill="#7a5a2a" stroke="#3a260e" stroke-width="2"/><path d="M${x} 172V186" stroke="#3a260e" stroke-width="4" stroke-linecap="round"/><circle cx="${x}" cy="190" r="6" fill="#7a5a2a" stroke="#3a260e" stroke-width="2"/>${candle(x, 162, 22)}`;
+  return `<svg class="ls-room" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMax slice" aria-hidden="true"><defs>
+    <linearGradient id="lr-wall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${open ? '#2e1e12' : '#171a25'}"/><stop offset="1" stop-color="${open ? '#1d130b' : '#0f1118'}"/></linearGradient>
+    <radialGradient id="lr-warm" cx="50%" cy="55%" r="60%"><stop offset="0" stop-color="#ffb35c" stop-opacity="${0.22 * warm}"/><stop offset="1" stop-color="#ffb35c" stop-opacity="0"/></radialGradient>
+    <linearGradient id="lr-floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${open ? '#3a2412' : '#1a1b22'}"/><stop offset="1" stop-color="${open ? '#170d06' : '#0a0b0f'}"/></linearGradient>
+    <linearGradient id="lr-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#091233"/><stop offset="1" stop-color="#26346a"/></linearGradient>
+    <linearGradient id="lr-fire" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#ff5a1f"/><stop offset=".55" stop-color="#ffb23d"/><stop offset="1" stop-color="#fff2b8"/></linearGradient>
+    <radialGradient id="lr-halo"><stop offset="0" stop-color="#ffcf7a" stop-opacity=".42"/><stop offset="1" stop-color="#ffcf7a" stop-opacity="0"/></radialGradient>
+    <radialGradient id="lr-hearth" cx="50%" cy="0%" r="70%"><stop offset="0" stop-color="#ff9a3d" stop-opacity="${0.35 * warm}"/><stop offset="1" stop-color="#ff9a3d" stop-opacity="0"/></radialGradient>
+    <clipPath id="lr-glass"><path d="M784 240V146A61 61 0 0 1 906 146V240Z"/></clipPath>
+    <clipPath id="lr-fl"><rect x="0" y="${FY}" width="${W}" height="${H - FY}"/></clipPath></defs>
+    <rect width="${W}" height="${FY}" fill="url(#lr-wall)"/><rect width="${W}" height="${FY}" fill="url(#lr-warm)"/>
+    <rect y="240" width="${W}" height="${FY - 240}" fill="#000" opacity=".22"/><rect y="238" width="${W}" height="6" fill="${open ? '#5a3a1e' : '#2a2c38'}"/>${panels}
+    <rect y="${FY - 8}" width="${W}" height="8" fill="${open ? '#4a2e16' : '#22242e'}"/>
+    <rect y="${FY}" width="${W}" height="${H - FY}" fill="url(#lr-floor)"/>
+    <g clip-path="url(#lr-fl)" stroke="#000" stroke-opacity=".3" stroke-width="2" fill="none"><path d="${planks}"/><path d="${rows}" stroke-opacity=".18"/></g>
+    <polygon points="790,${FY} 900,${FY} 980,${H} 820,${H}" fill="#9fb4ff" opacity="${open ? 0.05 : 0.09}"/>
+    <ellipse cx="155" cy="${FY + 4}" rx="190" ry="60" fill="url(#lr-hearth)"/>
+    <ellipse cx="500" cy="414" rx="350" ry="48" fill="#000" opacity=".35"/><ellipse cx="500" cy="408" rx="344" ry="46" fill="${open ? '#5c1f22' : '#2a1618'}"/><ellipse cx="500" cy="408" rx="318" ry="38" fill="none" stroke="${open ? '#c9a25a' : '#5a4a32'}" stroke-width="2.5" stroke-dasharray="10 6" opacity=".7"/><ellipse cx="500" cy="408" rx="270" ry="29" fill="${open ? '#6e2a2a' : '#301a1c'}"/>
+    <g><rect x="46" y="158" width="218" height="14" rx="3" fill="#5a3a1e" stroke="#2a1a0c" stroke-width="2"/><rect x="50" y="159" width="210" height="3" fill="#fff" opacity=".12"/>
+      <path d="M60 172H250V${FY}H60Z" fill="#3e3128"/><g fill="#4d3e33" stroke="#2a2019" stroke-width="1.5">${stones}</g>
+      <path d="M95 ${FY}V262Q155 210 215 262V${FY}Z" fill="#0d0805" stroke="#2a2019" stroke-width="3"/>
+      ${open ? `<ellipse cx="155" cy="300" rx="70" ry="44" fill="#ff7a2a" opacity=".22"/>${flame(132, 52, -0.3)}${flame(156, 70, 0)}${flame(178, 48, -0.6)}` : `<ellipse cx="155" cy="318" rx="44" ry="8" fill="#ff5a1f" opacity=".28"/>`}
+      <rect x="112" y="314" width="88" height="12" rx="6" fill="#4a2a14" stroke="#24140a" stroke-width="2"/><rect x="122" y="306" width="70" height="11" rx="5.5" fill="#5a3418" stroke="#24140a" stroke-width="2" transform="rotate(-6 157 311)"/>
+      ${candle(78, 158, 18)}${candle(96, 158, 12)}<circle cx="226" cy="140" r="15" fill="#c9a25a" stroke="#4a3208" stroke-width="2.5"/><circle cx="226" cy="140" r="11" fill="#f4ecd6"/><path d="M226 140V132M226 140L232 143" stroke="#2a1a0c" stroke-width="1.8" stroke-linecap="round"/><rect x="214" y="153" width="24" height="6" rx="2" fill="#c9a25a"/></g>
+    <g><path d="M748 54Q760 160 742 268L774 268Q788 160 778 54Z" fill="${open ? '#5a1e22' : '#2a1416'}"/><path d="M942 54Q930 160 948 268L916 268Q902 160 912 54Z" fill="${open ? '#5a1e22' : '#2a1416'}"/>
+      <path d="M770 252V144A75 75 0 0 1 920 144V252Z" fill="#3a2716" stroke="#1e130a" stroke-width="3"/>
+      <path d="M784 240V146A61 61 0 0 1 906 146V240Z" fill="url(#lr-sky)"/>
+      <g clip-path="url(#lr-glass)">${stars}<circle cx="872" cy="124" r="15" fill="#f6efcf"/><circle cx="879" cy="119" r="13" fill="#132050"/></g>
+      <path d="M845 88V240M784 176H906" stroke="#3a2716" stroke-width="6"/><rect x="760" y="248" width="170" height="10" rx="3" fill="#4a3220" stroke="#1e130a" stroke-width="2"/>
+      <rect x="740" y="48" width="210" height="9" rx="4.5" fill="#6b4a22"/></g>
+    ${sconce(330)}${sconce(670)}
+  </svg>`;
+}
 function sec_antechamber() {
   const open = latest.eggs.length > 0;
-  const conc = demoCreature('The Concierge', 'scholar', 'Legendary', { crown: true, salt: 'concierge', level: 9, vo: { colorway: 'classic', expression: 'smug', accessory: null, material: 'gold' } });
+  const conc = demoCreature('The Concierge', 'scholar', 'Legendary', { salt: 'concierge', level: 40, vo: { colorway: 'classic', expression: 'smug', accessory: null, material: 'gold' } });
   const hour = new Date().getHours();
   const part = hour < 5 ? 'These are the deep hours. Only the devoted are still running.' : hour < 12 ? 'Good morning. The machines are just waking.' : hour < 18 ? 'Good afternoon. A steady day of work behind you.' : 'Good evening. The fire is lit and the seats are warm.';
   const top = latest.me && latest.me.topSpecies && latest.me.topSpecies !== '—' ? `Mostly ${latest.me.topSpecies.toLowerCase()} work, I see.` : '';
-  const line = open ? `${part} ${latest.eggs.length === 1 ? 'One egg is' : plural(latest.eggs.length, 'egg') + ' are'} warming by the fire. ${top} Sit, the usual seat.` : `${part} But your agents are still. The door stays shut until the machines are thinking again. Come back mid-run.`;
+  const line = open ? `${part} ${latest.eggs.length === 1 ? 'One egg is' : plural(latest.eggs.length, 'egg') + ' are'} warming by the fire. ${top} Sit, the usual seat.` : `${part} Your agents are resting, so the fire is down to embers. Come back mid-run and the room comes alive.`;
   const night = latest.creatures.filter((c) => (c.traits || []).includes('Nightshift'));
   const owl = latest.skills && latest.skills.list.find((s) => s.key === 'nightowl');
   // tonight's Nightshift hatchlings (the last 24 hours), or else the most recent night's, honestly labelled
@@ -1816,29 +1873,28 @@ function sec_antechamber() {
   const lastNightKey = night[0] ? new Date(night[0].bornAt).toDateString() : '';
   const guests = (recentNight.length ? recentNight : night.filter((c) => new Date(c.bornAt).toDateString() === lastNightKey)).slice(0, 6);
   const guestLabel = recentNight.length ? 'Tonight’s Nightshift' : guests.length ? `Nightshift from ${shortDate(guests[0].bornAt)}` : '';
-  // the scene: Barnaby by the fire, the running eggs warming around him, the night's creatures wandering the floor
-  const eggs = latest.eggs.slice(0, 6).map((e, i) => { const side = i % 2 ? 1 : -1, k = Math.floor(i / 2); return `<div class="ls-egg" style="left:${50 + side * (15 + k * 9)}%;--d:-${(hashString(String(e.id)) % 2000) / 1000}s" title="${escapeXml((DOMAIN_LABEL[e.domainKey] || 'General') + ' work · running')}">${eggSVG(hashString(String(e.id)), (ART_PAL[e.domainKey] || ART_PAL.wisp).glow, 58)}<span>${escapeXml(DOMAIN_LABEL[e.domainKey] || 'General')} · <b class="timer-lite" data-start="${Number(e.startedAt) || 0}">${fmtClock(Date.now() - Number(e.startedAt))}</b></span></div>`; }).join('');
-  // each guest keeps to its own lane on one side of Barnaby, so nobody walks through him or a neighbour
-  const walkers = guests.map((c, i) => { const r = mulberry32(hashString('walk:' + c.id)), k = Math.floor(i / 2), right = i % 2 === 1, a = 2 + k * 11 + r() * 3, b = a + 6 + r() * 5; const x0 = right ? 92 - b : a, x1 = right ? 92 - a : b; return `<div class="ls-walk w${i} ${open ? '' : 'asleep'} link-c" data-id="${escapeXml(c.id)}" style="--x0:${F(x0)}%;--x1:${F(x1)}%;--dur:${F(11 + r() * 9)}s;--dl:-${F(r() * 10)}s" title="${escapeXml(c.fullName)}"><div class="ls-flip">${creatureSVG(c, 74, { crop: true })}</div></div>`; }).join('');
-  const scene = `<div class="lounge-scene ${open ? '' : 'closed'}">
-      <div class="ls-glow"></div><div class="ls-window"></div><div class="ls-sconce l"></div><div class="ls-sconce r"></div><div class="ls-fire"><i></i><i></i><i></i></div>
-      <div class="doorstate">${open ? '● the door is open' : '○ the door is closed'}</div>
+  // the running eggs warm on the hearth, in front of the fire
+  const eggs = latest.eggs.slice(0, 6).map((e, i) => { return `<div class="ls-egg e${i}" style="left:${9 + i * 6.4}%;--d:-${(hashString(String(e.id)) % 2000) / 1000}s" title="${escapeXml((DOMAIN_LABEL[e.domainKey] || 'General') + ' work · running')}">${eggSVG(hashString(String(e.id)), (ART_PAL[e.domainKey] || ART_PAL.wisp).glow, 46)}<span><b class="timer-lite" data-start="${Number(e.startedAt) || 0}">${fmtClock(Date.now() - Number(e.startedAt))}</b></span></div>`; }).join('');
+  // guests stand on the rug, each keeping to its own lane on one side of Barnaby so nobody walks through him
+  const walkers = guests.map((c, i) => { const r = mulberry32(hashString('walk:' + c.id)), k = Math.floor(i / 2), right = i % 2 === 1, a = 6 + k * 11 + r() * 3, b = a + 5 + r() * 4; const x0 = right ? 92 - b : a, x1 = right ? 92 - a : b; return `<div class="ls-walk w${i} ${open ? '' : 'asleep'} link-c" data-id="${escapeXml(c.id)}" style="--x0:${F(x0)}%;--x1:${F(x1)}%;--dur:${F(11 + r() * 9)}s;--dl:-${F(r() * 10)}s" title="${escapeXml(c.fullName)}"><div class="ls-flip">${creatureSVG(c, 76 - k * 6, { crop: true, bare: true })}</div></div>`; }).join('');
+  const scene = `<div class="lounge-scene ${open ? 'open' : 'closed'}">
+      ${loungeRoomSVG(open)}
+      <div class="ls-tags"><div class="doorstate">${open ? '● the door is open' : '○ the door is closed'}</div>${guestLabel ? `<div class="ls-caption">${escapeXml(guestLabel)} · ${plural(guests.length, 'guest')} on the floor</div>` : ''}</div>
       <div class="ls-bubble">"${escapeXml(line.replace(/\s+/g, ' ').trim())}"</div>
-      <div class="ls-floor"></div>
-      <div class="ls-host">${creatureSVG(conc, 210, { live: true })}<div class="concierge-name">Barnaby, the Concierge</div></div>
+      <div class="ls-host">${creatureSVG(conc, 196, { live: true, crop: true })}<div class="concierge-name">Barnaby, the Concierge</div></div>
       ${eggs}${walkers}
-      ${guestLabel ? `<div class="ls-caption">${escapeXml(guestLabel)} · ${plural(guests.length, 'guest')} on the floor</div>` : ''}
     </div>`;
-  return `<div class="section-lead">Not a place to be productive. A candlelit room that opens only while your agents are really running. Barnaby keeps your running eggs warm, and the creatures your night runs hatched wander in.</div>
-  ${scene}
-  <div class="grid cols-2" style="margin-top:16px">
-      <div class="panel"><div class="p-head"><h2>Right now</h2></div>
-        <div class="net"><div class="n"><b>${latest.eggs.length}</b><span>${latest.eggs.length === 1 ? 'agent' : 'agents'} running</span></div><div class="n"><b>${latest.me && latest.me.week != null ? fmtN(latest.me.week) : '—'}</b><span>your points this week</span></div></div>
-        ${latest.eggs.length ? `<div class="eggs" style="margin-top:12px">${latest.eggs.slice(0, 2).map(eggBox).join('')}</div>` : ''}</div>
-      <div class="panel"><div class="p-head"><h2>After hours</h2><span class="note">runs that finished between midnight and 5am</span></div>
-        <div class="net"><div class="n"><b>${fmtN(night.length)}</b><span>Nightshift creatures</span></div>${owl ? `<div class="n"><b>Lv ${owl.level}</b><span>Night Owl · ${escapeXml(owl.title)}</span></div>` : ''}</div>
-        ${night[0] ? `<div class="contrib" data-id="${escapeXml(night[0].id)}" style="margin-top:12px">${creatureSVG(night[0], 44, { crop: true })}<div><b>${escapeXml(night[0].fullName)}</b><span>latest night run · ${shortDate(night[0].bornAt)}</span></div></div>` : '<p class="note">No night runs yet. Run an agent after midnight and its creature wanders in here.</p>'}</div>
-  </div>`;
+  const book = night.slice(0, 8);
+  const ledger = `<div class="panel lounge-ledger"><div class="ll-stats">
+      <div><b>${fmtN(latest.eggs.length)}</b><span>${latest.eggs.length === 1 ? 'agent' : 'agents'} running now</span></div>
+      <div><b>${latest.me && latest.me.week != null ? fmtN(latest.me.week) : '—'}</b><span>your points this week</span></div>
+      <div><b>${fmtN(night.length)}</b><span>Nightshift creatures</span></div>
+      ${owl ? `<div><b>Lv ${owl.level}</b><span>Night Owl · ${escapeXml(owl.title)}</span></div>` : ''}</div>
+    ${latest.eggs.length ? `<div class="eggs" style="margin-top:14px">${latest.eggs.slice(0, 2).map(eggBox).join('')}</div>` : ''}
+    <div class="p-head ll-head"><h2>The guest book</h2><span class="note">runs that finished between midnight and 5am</span></div>
+    ${book.length ? `<div class="ll-guests">${book.map((c) => `<div class="guest link-c" data-id="${escapeXml(c.id)}" style="--tier:${c.rarity.chip}">${creatureSVG(c, 64, { crop: true })}<div><b>${escapeXml(shortName(c))}</b><span><span style="color:${c.rarity.chip}">${c.rarity.tier}</span> ${escapeXml(c.speciesName)}</span><span>${shortDate(c.bornAt)} · ${escapeXml(shortOrigin(c))}</span></div></div>`).join('')}</div>` : '<p class="note">No night runs yet. Run an agent after midnight and its creature signs the book.</p>'}</div>`;
+  return `<div class="section-lead">Not a place to be productive. A candlelit room that comes alive only while your agents are really running. Barnaby keeps your running eggs warm, and the creatures your night runs hatched wander in.</div>
+  ${scene}${ledger}`;
 }
 
 // ---- server build check: never let an older server quietly show empty panels ----
@@ -1958,7 +2014,7 @@ function buildRail() {
   document.querySelectorAll('.rbtn[data-key]').forEach((b) => b.addEventListener('click', () => { moreOpen = isPhone() ? false : moreOpen; setSection(b.dataset.key); }));
   document.getElementById('moreToggle').addEventListener('click', (e) => { e.stopPropagation(); moreOpen = !moreOpen; buildRail(); });
   const sm = document.getElementById('soundm'); if (sm) sm.addEventListener('click', () => sfx.toggle());
-  document.getElementById('mark').innerHTML = creatureSVG(demoCreature('mark', 'hydra', 'Epic', { crown: false, salt: 'mk', level: 6, vo: { colorway: 'classic', expression: 'grin', accessory: null, pattern: null } }), 32) + '<span class="mark-txt">Proof of Life</span>';
+  document.getElementById('mark').innerHTML = creatureSVG(demoCreature('mark', 'hydra', 'Epic', { salt: 'mk', level: 15, vo: { colorway: 'classic', expression: 'grin', accessory: null, pattern: null } }), 32) + '<span class="mark-txt">Proof of Life</span>';
   const st = document.getElementById('sound');
   if (st) { st.innerHTML = (sfx.on ? IC.soundOn : IC.soundOff) + `<span class="rlabel">Sound ${sfx.on ? 'on' : 'off'}</span>`; st.setAttribute('aria-pressed', sfx.on ? 'true' : 'false'); st.title = sfx.on ? 'Sound on' : 'Sound off'; }
 }
@@ -2158,7 +2214,7 @@ function oddsOf(c) {
   if (v && v.shiny) out.push(`1 in ${PV ? PV.SHINY_ODDS : 64} hatch Shiny`);
   if (c.rarity.tier === 'Legendary' && v && !v.shiny && v.material === 'holo') out.push('Holo: 4 in 10 Legendaries');
   if (c.rarity.tier === 'Legendary' && v && !v.shiny && v.material === 'gold') out.push('Gold Chrome: 6 in 10 Legendaries');
-  const mine = latest.creatures.filter((x) => !x.bredBy && (x.durationMs || 0) > 0 && (x.durationMs || 0) <= 24 * 3600e3);
+  const mine = latest.creatures.filter((x) => !x.bredBy && (x.durationMs || 0) > 0 && !isOpenRun(x));
   if (!c.bredBy && mine.some((x) => x.id === c.id) && mine.length >= 10) {
     const longer = mine.filter((x) => x.durationMs > c.durationMs).length, pct = Math.max(1, Math.ceil(((longer + 1) / mine.length) * 100));
     if (pct <= 50) out.push(`Top ${pct}% of ${fmtN(mine.length)} runs by length`);
@@ -2186,6 +2242,12 @@ function cardFrame(c, W, H) {
   const frame = T === 'Legendary' && !(v && v.shiny) ? ['#fff3b0', '#f5c451', '#a8740a', '#ffe39a'] : T === 'Mythic' || (v && v.shiny) ? ['#ff7bd0', '#7bf0ff', '#b28dff', '#ffd36b'] : [lighten(chip, 0.3), chip, darken(chip, 0.4), lighten(chip, 0.2)];
   return `<linearGradient id="frame-g" x1="0" y1="0" x2="1" y2="1">${frame.map((s, i) => `<stop offset="${(i / (frame.length - 1)).toFixed(2)}" stop-color="${s}"/>`).join('')}</linearGradient>`;
 }
+// the creature fitted into an art window by its own crop box, so nothing is ever cut off by the frame
+function fitArt(c, inner, x, y, w, h, pad) {
+  const [bx, by, bw, b0] = cropBox(c).split(' ').map(Number), bh = b0 + 14, k = Math.min((w - 2 * pad) / bw, (h - 2 * pad) / bh); // +14: the plinth under its feet
+  return `<g transform="translate(${F(x + w / 2 - (bx + bw / 2) * k)} ${F(y + h / 2 - (by + bh / 2) * k)}) scale(${F(k * 1000) / 1000})">${inner}</g>`;
+}
+function runFact(c) { return c.bredBy ? `bred from ${c.domain || 'shared'} work` : isOpenRun(c) ? 'hatched from a session left open' : `forged from ${aAn(c.durationLabel)} ${c.durationLabel} agent run`; }
 function buildCardSVG(c, preset) {
   const [W, H] = CARD_PRESETS[preset] || CARD_PRESETS.portrait, chip = c.rarity.chip, v = variantOf(c), st = stageOf(c), T = c.rarity.tier;
   const g = gainsOf(c)[0], fp = c.att ? c.att.fp : null, handle = c.bredBy ? '@' + c.bredBy.join(' + @') : latest.me ? '@' + latest.me.handle : '';
@@ -2198,32 +2260,36 @@ function buildCardSVG(c, preset) {
     const holo = cardHolo(c, W, H, ax, ay, aw, ah);
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs>${PL_DEFS}${cardFrame(c, W, H)}${holo.defs}<radialGradient id="bgg" cx="30%" cy="45%" r="80%"><stop offset="0" stop-color="#1e2436"/><stop offset="1" stop-color="#0b0d13"/></radialGradient><radialGradient id="spot" cx="50%" cy="55%" r="55%"><stop offset="0" stop-color="${chip}" stop-opacity=".42"/><stop offset="1" stop-color="${chip}" stop-opacity="0"/></radialGradient><clipPath id="art-clip"><rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" rx="26"/></clipPath></defs>
       <rect width="${W}" height="${H}" rx="34" fill="url(#bgg)"/><rect x="8" y="8" width="${W - 16}" height="${H - 16}" rx="28" fill="none" stroke="url(#frame-g)" stroke-width="6"/>
-      <g clip-path="url(#art-clip)"><rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" fill="#10131c"/><circle cx="${ax + aw / 2}" cy="${ay + ah * 0.55}" r="${aw * 0.62}" fill="url(#spot)"/>${holo.layer}<g transform="translate(${ax + 30} ${ay + 18}) scale(2.2)">${inner}</g></g><rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" rx="26" fill="none" stroke="url(#frame-g)" stroke-width="3" opacity=".8"/>
+      <g clip-path="url(#art-clip)"><rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" fill="#10131c"/><circle cx="${ax + aw / 2}" cy="${ay + ah * 0.55}" r="${aw * 0.62}" fill="url(#spot)"/>${holo.layer}${fitArt(c, inner, ax, ay, aw, ah, 26)}</g><rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" rx="26" fill="none" stroke="url(#frame-g)" stroke-width="3" opacity=".8"/>
       ${TX(590, 110, 20, '#8d96b3', 'PROOF OF LIFE  ' + tagOf(c), { a: 'start', ls: 6, w: 700 })}${TX(590, 168, 30, chip, tierLabel, { a: 'start', ls: 6, w: 800 })}
       ${TX(590, 238, Math.min(54, Math.floor(1060 / Math.max(10, c.fullName.length))), '#f4f2ff', c.fullName, { a: 'start', serif: 1 })}
       ${TX(590, 286, 24, '#d8dcea', `${v ? v.full : c.speciesName}`, { a: 'start', w: 600 })}${TX(590, 324, 22, '#9aa3bf', `${c.speciesName} · Lv ${c.level || 1} · ${st.name}`, { a: 'start' })}
-      ${TX(590, 372, 22, '#9aa3bf', c.bredBy ? `bred from ${c.domain || 'shared'} work` : `forged from ${aAn(c.durationLabel)} ${c.durationLabel} agent run${c.toolCalls ? ' · ' + plural(c.toolCalls, 'tool call') : ''}`, { a: 'start' })}
+      ${TX(590, 372, 22, '#9aa3bf', runFact(c) + (c.toolCalls ? ' · ' + plural(c.toolCalls, 'tool call') : ''), { a: 'start' })}
       ${g ? `<rect x="590" y="404" width="${Math.min(520, 40 + (fmtN(g[1]).length + skillName(g[0]).length + 2) * 15)}" height="48" rx="24" fill="${chip}" fill-opacity=".14" stroke="${chip}" stroke-opacity=".55"/>` + TX(614, 436, 22, '#f4f2ff', `+${fmtN(g[1])} ${skillName(g[0])}`, { a: 'start', w: 700 }) : ''}
       ${oddsOf(c).length ? TX(590, 492, 21, chip, oddsOf(c).join('  ·  '), { a: 'start', w: 700 }) : ''}
       ${TX(590, 534, 19, '#7e88a6', verify, { a: 'start', mono: 1 })}${TX(590, 566, 19, '#646d88', `${handle} · minted from real machine hours`, { a: 'start' })}</svg>`;
   }
-  // portrait: a trading card. Frame, a foil art window, a name plate, four real stats, a signed footer.
-  const ax = 70, ay = 150, aw = W - 140, ah = 770;
+  // portrait: a trading card. Frame, a foil art window, the odds pill under it, a name plate,
+  // three or four real stats (a stat with no data is left out, never shown as a dash), a signed footer.
+  const ax = 70, ay = 146, aw = W - 140, ah = 700;
   const holo = cardHolo(c, W, H, ax, ay, aw, ah);
-  const stat = (x, label, val) => `<rect x="${x}" y="1068" width="220" height="104" rx="18" fill="#ffffff" fill-opacity=".04" stroke="#ffffff" stroke-opacity=".1"/>${TX(x + 110, 1108, 18, '#8d96b3', label, { ls: 3, w: 700 })}${TX(x + 110, 1150, 34, '#f4f2ff', val, { w: 700 })}`;
   const odds = oddsOf(c), oddsTxt = odds.join('  ·  '), oddsW = Math.min(aw - 40, 60 + oddsTxt.length * 12.4);
-  const stats = [['RUN', c.bredBy ? '—' : c.durationLabel || '—'], ['TOOLS', c.toolCalls != null ? fmtN(c.toolCalls) : '—'], ['LEVEL', `${c.level || 1}`], ['SUBAGENTS', fmtN(c.subagents || 0)]];
+  const stats = [c.bredBy ? ['ORIGIN', 'cross-fed'] : ['RUN', isOpenRun(c) ? 'left open' : c.durationLabel || '0s']];
+  if (c.toolCalls != null) stats.push(['TOOLS', fmtN(c.toolCalls)]);
+  stats.push(['LEVEL', `${c.level || 1}`], ['SUBAGENTS', fmtN(c.subagents || 0)]);
+  const gap = 20, tw = (W - 160 - gap * (stats.length - 1)) / stats.length;
+  const stat = (i, label, val) => { const x = 80 + i * (tw + gap); return `<rect x="${F(x)}" y="1068" width="${F(tw)}" height="104" rx="18" fill="#ffffff" fill-opacity=".04" stroke="#ffffff" stroke-opacity=".1"/>${TX(F(x + tw / 2), 1108, 18, '#8d96b3', label, { ls: 3, w: 700 })}${TX(F(x + tw / 2), 1150, val.length > 9 ? 28 : 34, '#f4f2ff', val, { w: 700 })}`; };
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs>${PL_DEFS}${cardFrame(c, W, H)}${holo.defs}<radialGradient id="bgg" cx="50%" cy="30%" r="85%"><stop offset="0" stop-color="#1e2436"/><stop offset="1" stop-color="#0a0c12"/></radialGradient><radialGradient id="spot" cx="50%" cy="58%" r="58%"><stop offset="0" stop-color="${chip}" stop-opacity=".45"/><stop offset=".6" stop-color="${chip}" stop-opacity=".1"/><stop offset="1" stop-color="${chip}" stop-opacity="0"/></radialGradient><clipPath id="art-clip"><rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" rx="34"/></clipPath></defs>
     <rect width="${W}" height="${H}" rx="44" fill="url(#bgg)"/>
     <rect x="12" y="12" width="${W - 24}" height="${H - 24}" rx="36" fill="none" stroke="url(#frame-g)" stroke-width="10"/><rect x="30" y="30" width="${W - 60}" height="${H - 60}" rx="26" fill="none" stroke="url(#frame-g)" stroke-width="2" opacity=".55"/>
     ${TX(80, 106, 22, '#9aa3bf', 'PROOF OF LIFE  ' + tagOf(c), { a: 'start', ls: 7, w: 700 })}
     <rect x="${W - 80 - (tierLabel.length * 19 + 56)}" y="70" width="${tierLabel.length * 19 + 56}" height="50" rx="25" fill="${chip}" fill-opacity=".12" stroke="url(#frame-g)" stroke-width="3"/>${TX(W - 80 - (tierLabel.length * 19 + 56) / 2, 104, 22, chip, tierLabel, { ls: 4, w: 800 })}
-    <g clip-path="url(#art-clip)"><rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" fill="#0f121b"/><circle cx="${W / 2}" cy="${ay + ah * 0.56}" r="${aw * 0.62}" fill="url(#spot)"/>${holo.layer}<g transform="translate(${W / 2 - 400} ${ay - 30}) scale(4)">${inner}</g></g>
+    <g clip-path="url(#art-clip)"><rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" fill="#0f121b"/><circle cx="${W / 2}" cy="${ay + ah * 0.56}" r="${aw * 0.62}" fill="url(#spot)"/>${holo.layer}${fitArt(c, inner, ax, ay, aw, ah, 34)}</g>
     <rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" rx="34" fill="none" stroke="url(#frame-g)" stroke-width="4"/>
-    ${odds.length ? `<rect x="${W / 2 - oddsW / 2}" y="${ay + ah - 78}" width="${oddsW}" height="52" rx="26" fill="#07080d" fill-opacity=".72" stroke="url(#frame-g)" stroke-width="2"/>` + TX(W / 2, ay + ah - 44, 23, '#f4f2ff', oddsTxt, { w: 700, ls: 1 }) : ''}
-    ${TX(W / 2, 990, Math.min(64, Math.floor(1700 / Math.max(10, c.fullName.length))), '#f6f4ff', c.fullName, { serif: 1 })}
+    ${odds.length ? `<rect x="${F(W / 2 - oddsW / 2)}" y="${ay + ah + 18}" width="${F(oddsW)}" height="50" rx="25" fill="${chip}" fill-opacity=".1" stroke="url(#frame-g)" stroke-width="2"/>` + TX(W / 2, ay + ah + 51, 23, '#f4f2ff', oddsTxt, { w: 700, ls: 1 }) : ''}
+    ${TX(W / 2, 988, Math.min(62, Math.floor(1700 / Math.max(10, c.fullName.length))), '#f6f4ff', c.fullName, { serif: 1 })}
     ${TX(W / 2, 1036, 26, chip, `${v ? v.full : c.speciesName} · ${c.speciesName} · ${st.name}`, { w: 600 })}
-    ${stat(80, stats[0][0], stats[0][1])}${stat(320, stats[1][0], stats[1][1])}${stat(560, stats[2][0], stats[2][1])}${stat(800, stats[3][0], stats[3][1])}
+    ${stats.map(([l, v2], i) => stat(i, l, v2)).join('')}
     ${TX(80, 1232, 24, '#f4f2ff', g ? `+${fmtN(g[1])} ${skillName(g[0])}` : c.traits && c.traits.length ? c.traits.join(' · ') : handle, { a: 'start', w: 700 })}
     ${TX(W - 80, 1226, 19, '#8d96b3', verify, { a: 'end', mono: 1 })}${TX(W - 80, 1258, 18, '#646d88', `${handle ? handle + ' · ' : ''}minted from real machine hours`, { a: 'end' })}</svg>`;
 }

@@ -302,11 +302,15 @@ function computeCreature(run) {
 
 // ---- leveling: raise a creature across future successful runs -----------
 // A creature keeps growing every time you finish another good run of the SAME
-// kind of work (only its 20 most recent siblings are raised, so levels mean
-// something instead of everything maxing out).
-const LEVEL_XP = [0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700]; // min xp for level (index + 1)
-const LEVEL_LABELS = ['Newborn', 'Growing', 'Stronger', 'Thriving', 'Seasoned', 'Veteran', 'Elder', 'Ancient', 'Exalted', 'Fully Raised'];
-const HERD_WINDOW = 20;
+// kind of work. 60 levels on a slowing curve (Lv 2 after one run, Lv 60 after
+// about 400 runs of its kind), so a collection spreads across every stage
+// instead of bunching up at the top. Level and xp are derived, never signed.
+const MAX_CREATURE_LEVEL = 60;
+const LEVEL_XP = Array.from({ length: MAX_CREATURE_LEVEL }, (_, i) => (i ? 10 * i * i + 40 : 0)); // min xp for level (index + 1)
+// growth stages, by level (public/variants.js draws the same ones)
+const STAGES = [{ name: 'Hatchling', from: 1 }, { name: 'Juvenile', from: 6 }, { name: 'Adult', from: 15 }, { name: 'Elder', from: 28 }, { name: 'Exalted', from: 40 }];
+const LEVEL_LABELS = STAGES.map((s) => s.name);
+const HERD_WINDOW = 400; // a run raises up to this many earlier siblings of its kind
 
 function levelFor(xp) {
   let lvl = 1;
@@ -315,7 +319,9 @@ function levelFor(xp) {
 }
 function levelLabel(creature) {
   if (creature.status === 'sick' && (creature.level || 1) < 2) return 'Weak & Sick';
-  return LEVEL_LABELS[Math.min(creature.level || 1, LEVEL_LABELS.length) - 1];
+  const L = creature.level || 1; let name = STAGES[0].name;
+  for (const s of STAGES) if (L >= s.from) name = s.name;
+  return name;
 }
 function xpToNext(creature) {
   const lvl = creature.level || 1;
@@ -409,6 +415,8 @@ module.exports = {
   isOpenSession,
   localHour,
   LEVEL_XP,
+  MAX_CREATURE_LEVEL,
+  STAGES,
   HERD_WINDOW,
   computeCreature,
   detectDomain,

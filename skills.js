@@ -52,6 +52,7 @@
   }
 
   // ---- title bands: one distinct hue per band, so progress reads at a glance ----
+  // Every ten levels, then Apex at the cap. Rarity words (Legendary, Mythic) belong to creatures only.
   const SKILL_BANDS = [
     { key: 'novice',       name: 'Novice',       from: 1,   to: 9,   color: '#8b90a0' },
     { key: 'apprentice',   name: 'Apprentice',   from: 10,  to: 19,  color: '#7ddc6a' },
@@ -61,9 +62,8 @@
     { key: 'master',       name: 'Master',       from: 50,  to: 59,  color: '#c06cff' },
     { key: 'grandmaster',  name: 'Grandmaster',  from: 60,  to: 69,  color: '#ff5fb4' },
     { key: 'virtuoso',     name: 'Virtuoso',     from: 70,  to: 79,  color: '#ff6a5c' },
-    { key: 'legend',       name: 'Legend',       from: 80,  to: 89,  color: '#ff9a2e' },
-    { key: 'mythic',       name: 'Mythic',       from: 90,  to: 98,  color: '#ff8ad8', gradient: ['#ff7bd0', '#b28dff', '#67a8f0', '#6ee7a5'] },
-    { key: 'paragon',      name: 'Paragon',      from: 99,  to: 99,  color: '#f5c451', ring: 'gold', glyph: 'laurel' },
+    { key: 'luminary',     name: 'Luminary',     from: 80,  to: 89,  color: '#ff9a2e' },
+    { key: 'paragon',      name: 'Paragon',      from: 90,  to: 99,  color: '#ff8ad8', gradient: ['#ff7bd0', '#b28dff', '#67a8f0', '#6ee7a5'] },
     { key: 'ascendant',    name: 'Ascendant',    from: 100, to: 109, color: '#ffe3a0', gradient: ['#fff6d6', '#f5c451', '#ffe3a0'], ring: 'gold' },
     { key: 'transcendent', name: 'Transcendent', from: 110, to: 119, color: '#9ff3ff', gradient: ['#e8fdff', '#7bd6ff', '#b28dff'] },
     { key: 'apex',         name: 'Apex',         from: 120, to: 120, color: '#ffffff', gradient: ['#ff7bd0', '#f5c451', '#7bf0ff', '#b28dff'], ring: 'gold' },

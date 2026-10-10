@@ -5,10 +5,10 @@
 You give an agent a task and wait. Proof of Life turns that wait into something: when a run starts, an egg starts growing. When it ends, a creature hatches, shaped by what the agent really did.
 
 - **Species is set by the work done**, read from the tools the agent called and the files it touched: Cog (code), Scholar (research), Moth (writing), Prism (design), Lumen (video), Hydra (outreach), Wisp (browser and computer use).
-- **Rarity is set by how long it ran:** Common (up to 20s), Uncommon (90s), Rare (5m), Epic (20m), Legendary (over 20m). Every tier is a visible upgrade: a pattern and an accessory, then metal trim and glowing eyes, glowing markings and an aura, and at Legendary a Gold Chrome or Holo body, a crown made for its species and star eyes.
+- **Rarity is set by how long it ran:** Common (up to 20s), Uncommon (90s), Rare (5m), Epic (20m), Legendary (over 20m). Every tier is a visible upgrade: a pattern and an accessory, then metal trim and glowing eyes, glowing markings and an aura, and at Legendary a silhouette and finish upgrade: a Gold Chrome or Holo body, a pair of wings made for its species, a bigger crest and star eyes. Every creature wears at most one accessory, and nothing ever covers its eyes.
 - **Mythic, the top tier,** can't be bought or rushed. Solo, it takes a run of 2 hours or more with 10 or more subagents that doesn't fail (*Legion*), or the first run of a 30th day in a row (*Devoted*). Cross-feeding with another operator on the same server also breeds Mythic hybrids.
 - **Every creature is one of a kind.** Its colorway (8 per species), pattern, accessory, expression and eyes are read off its signed seed, and about 1 in 64 hatches **Shiny** in chrome or holo. Nothing about the look is stored, so it can't be edited either.
-- **It grows up.** Each good run raises the 20 most recent creatures of its kind: hatchlings sit in their shell, juveniles grow their ornaments in, adults are fully grown, and elders get pale brows, whiskers, a warm glow and, from Lv 9, a laurel.
+- **It grows up.** Each good run raises the earlier creatures of its kind, on a 60-level curve that slows as it climbs (Lv 2 after one run, Lv 60 after about 400): hatchlings (Lv 1-5) sit in their shell, juveniles (6-14) grow their ornaments in, adults (15-27) are fully grown, elders (28-39) get bushy brows, whiskers and a warm glow, and the Exalted (40+) snow-white brows and a laurel.
 - **Traits come from real signals:** *Nightshift* (ran before 5am), *Marathon* (a long run), *Swarm* (5+ subagents), *Scarred* (survived a failure).
 - **Every creature is signed with Ed25519** the moment it hatches. The signature covers duration, species, tier, seed, tool-call count and owner, so changing any of them breaks it. You can only earn one with real machine hours.
 
@@ -40,7 +40,7 @@ Everything runs on your machine. Your creatures live in `data/state.json`.
 
 ## Skills
 
-Every creature feeds 28 operator skills on a 1-120 curve (`skills.js`), with prestige stars past 120. Levels 1-99 sit exactly where they always did; Ascendant (100), Transcendent (110) and Apex (120) continue the same formula. Each band has its own color.
+Every creature feeds 28 operator skills on a 1-120 curve (`skills.js`), with prestige stars past 120. A title band every ten levels (Novice, Apprentice, Journeyman, Adept, Expert, Master, Grandmaster, Virtuoso, Luminary, Paragon, Ascendant, Transcendent) and Apex at 120, each with its own color. Rarity words like Legendary and Mythic belong to creatures only.
 
 - **Work:** Engineering, Debugging, Testing, Shipping, Data, Research, Writing, Design, Video, Outreach and Automation, from the tools a run used. Every skill a run really exercised gets its share, plus a floor per real signal, so three `git` calls always feed Shipping.
 - **Craft:** Toolsmith, Orchestration, Endurance and Resilience, as bonuses on each run.

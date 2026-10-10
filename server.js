@@ -47,7 +47,7 @@ const ACCENTS = ['#67e39a', '#8fa2c9', '#65d6d6', '#7bd6ff', '#ffb959', '#e6a3b6
 // sample operators are opt-in: without the flag they stay hidden even if a
 // previous run stored them
 const SHOW_SAMPLES = process.argv.includes('--samples') || process.env.POL_SAMPLES === '1';
-const HERD_VERSION = 2; // per-domain raising, see raiseHerd
+const HERD_VERSION = 3; // per-domain raising on the 60-level curve, see raiseHerd
 
 // ---- safe file io --------------------------------------------------------
 // write to a temp file then rename, so a crash mid-write can never leave a
@@ -336,7 +336,7 @@ function tickSubagent(op, { id, activity }) {
   saveState();
   return egg;
 }
-// a healthy run raises its 20 most recent siblings of the same kind of work
+// a healthy run raises its most recent siblings of the same kind of work (engine.HERD_WINDOW)
 function raiseOne(c, gain) {
   c.xp = (c.xp || 0) + gain;
   c.level = levelFor(c.xp);
@@ -452,7 +452,8 @@ function statsOf(op) {
   let machineMs = 0, openMs = 0, openCount = 0;
   for (const c of op.creatures) { if (isOpenSession(c)) { openMs += c.durationMs; openCount++; } else machineMs += c.durationMs || 0; }
   // one 'rarest' ranking for every page (variants.js): tier, then Shiny, then Holo / Gold Chrome, then the longer run
-  const rarest = op.creatures.reduce((best, c) => (c.bredBy ? best : !best || Variants.rarer(c, best) < 0 ? c : best), null);
+  // a session left open keeps its signed tier, but it never counts as your rarest run
+  const rarest = op.creatures.reduce((best, c) => (c.bredBy || isOpenSession(c) ? best : !best || Variants.rarer(c, best) < 0 ? c : best), null);
   return {
     total: op.creatures.length,
     machineHours: Math.round(machineMs / 360000) / 10,
