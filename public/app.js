@@ -838,7 +838,6 @@ const ACC = {
 const ACC_LAYER = { visor: 'face', goggles: 'face', scarf: 'body', headphones: 'top', beanie: 'top', bow: 'top', sprout: 'top' };
 function accessorySVG(A, K, layer) {
   const a = A.v && A.v.accessory; if (!a || !ACC[a.key] || ACC_LAYER[a.key] !== layer) return '';
-  if (A.stage === 'hatchling' && (a.key === 'beanie' || a.key === 'sprout' || a.key === 'headphones')) return ''; // still growing into it
   if (A.sick && a.key === 'visor') return '';
   return `<g class="acc">${ACC[a.key](A, K, A.v.accColor)}</g>`;
 }
@@ -1015,10 +1014,10 @@ function creatureInner(c, rng) {
   q.push(accessorySVG(A, K, 'top'));
   if (A.ti >= 4) {
     const acc = A.v && A.v.accessory ? A.v.accessory.key : '';
-    const lift = acc === 'beanie' && A.stage !== 'hatchling' ? K.hat.w * 1.15 : acc === 'headphones' && A.stage !== 'hatchling' ? 8 : 0;
+    const lift = acc === 'beanie' ? K.hat.w * 1.15 : acc === 'headphones' ? 8 : 0;
     q.push(crownFor(A, K.headTop.x, K.headTop.y + 4 - lift));
   }
-  if (A.v && A.v.accessory && A.v.accessory.key === 'beanie' && A.sk === 'wisp' && A.stage !== 'hatchling') q.push(wispFlame(A, K.hat.x, K.hat.y - K.hat.w * 1.3));
+  if (A.v && A.v.accessory && A.v.accessory.key === 'beanie' && A.sk === 'wisp') q.push(wispFlame(A, K.hat.x, K.hat.y - K.hat.w * 1.3));
   if (T === 'Mythic') { const hx = K.headTop.x, hy = K.headTop.y - 30; q.push(`<g class="pl-float"><circle cx="${F(hx)}" cy="${F(hy)}" r="22" fill="url(#pl-myth)"/><ellipse cx="${F(hx)}" cy="${F(hy)}" rx="16" ry="4.5" fill="none" stroke="#ff7bd0" stroke-width="2.5"/><ellipse cx="${F(hx)}" cy="${F(hy)}" rx="16" ry="4.5" fill="none" stroke="#fff" stroke-width=".8" opacity=".8"/></g>`); }
   q.push('</g>' + (A.sick ? '</g>' : '') + '</g></g>');
   if (A.stage === 'hatchling') q.push(shellSVG(A, true));
