@@ -72,6 +72,7 @@
     { key: 'juvenile', name: 'Juvenile', from: 3 },
     { key: 'adult', name: 'Adult', from: 5 },
     { key: 'elder', name: 'Elder', from: 7 },
+    { key: 'exalted', name: 'Exalted', from: 9 },
   ];
   function stageOf(c) {
     if (c && (c.bredBy || c.parents)) return STAGES[2]; // a hybrid arrives grown
@@ -136,6 +137,16 @@
     return v;
   }
 
+  // ---- one ranking of 'rarest' for every page and the server ----
+  // tier first; inside a tier a Shiny outranks the rest, then the Legendary
+  // editions (Holo over Gold Chrome). Ties go to the longer run.
+  function rankScore(c) {
+    if (!c || !c.rarity) return -1;
+    const v = variantOf(c);
+    return TIER_RANK[tierOf(c)] * 10 + (v.shiny ? 5 : 0) + (v.material === 'holo' ? 2 : v.material === 'gold' ? 1 : 0);
+  }
+  function rarer(a, b) { return rankScore(b) - rankScore(a) || (b.durationMs || 0) - (a.durationMs || 0) || (a.bornAt || 0) - (b.bornAt || 0); }
+
   // ---- the Dex: every slot a collector can fill (308) ----
   // per species: the full set of 8 colorways x 5 hatch tiers (40), a Mythic,
   // a Shiny, and the two Legendary editions (Gold Chrome, Holo)
@@ -164,6 +175,6 @@
 
   return {
     SPECIES_KEYS, TIERS, SET_TIERS, TIER_RANK, COLORWAYS, PATTERNS, ACCESSORIES, ACC_FOR, EXPRESSIONS, EYES, STAGES, SHINY_ODDS,
-    variantOf, stageOf, dexSlots, slotsOf, hashString, mulberry32,
+    variantOf, stageOf, rankScore, rarer, dexSlots, slotsOf, hashString, mulberry32,
   };
 });

@@ -483,8 +483,9 @@
     const lastDay = dayList[dayList.length - 1];
     if (lastDay && (lastDay.idx === todayIdx || lastDay.idx === todayIdx - 1)) cur = lastDay.streak;
     const weekAgo = now - 7 * 86400000;
-    const rarestWeek = honest.filter((c) => c.bornAt >= weekAgo)
-      .reduce((b, c) => (!b || c.rarity.index > b.rarity.index || (c.rarity.index === b.rarity.index && c.durationMs > b.durationMs) ? c : b), null);
+    // the same 'rarest' ranking as every other page (variants.js): tier, then Shiny, then the Legendary editions
+    const rarestWeek = honest.filter((c) => c.bornAt >= weekAgo && !c.bredBy)
+      .reduce((b, c) => (!b || Variants.rarer(c, b) < 0 ? c : b), null);
     const weekGains = out.map((s) => ({ key: s.key, name: s.name, xp: s.week.reduce((a, b) => a + b, 0) }))
       .filter((s) => s.xp > 0).sort((a, b) => b.xp - a.xp).slice(0, 3);
     // your own typical day: the median of your last 28 active days (not counting today)
@@ -496,8 +497,13 @@
     for (const d of dayList) {
       const inWin = dayList.filter((x) => x.idx > d.idx - 7 && x.idx <= d.idx);
       const pts = inWin.reduce((a, x) => a + x.points, 0);
-      if (!bestWeek || pts > bestWeek.points) bestWeek = { points: pts, runs: inWin.reduce((a, x) => a + x.runs, 0), to: d.key, from: inWin[0].key };
+      if (!bestWeek || pts > bestWeek.points) bestWeek = { points: pts, runs: inWin.reduce((a, x) => a + x.runs, 0), to: d.key, from: inWin[0].key, toIdx: d.idx };
     }
+    // the race chart: points per local day, the 7 days of your best week and the last 7 days (today last)
+    const ptsByIdx = new Map(dayList.map((d) => [d.idx, d.points]));
+    const dayPts = (endIdx) => { const out = []; for (let i = 6; i >= 0; i--) out.push(ptsByIdx.get(endIdx - i) || 0); return out; };
+    if (bestWeek) { bestWeek.days = dayPts(bestWeek.toIdx); delete bestWeek.toIdx; }
+    const lastDays = dayPts(todayIdx);
     const mostSubs = honest.reduce((b, c) => (!b || (c.subagents || 0) > (b.subagents || 0) ? c : b), null);
     const thisWeekPts = list.filter((c) => c.bornAt >= weekAgo).reduce((a, c) => a + runPoints(c), 0);
 
@@ -507,6 +513,7 @@
       totalLevel: total,
       maxTotalLevel: SKILL_KEYS.length * MAX_LEVEL,
       maxLevel: MAX_LEVEL,
+      bands: SKILL_BANDS.map((b) => ({ key: b.key, name: b.name, from: b.from, color: b.color })),
       totalBand: totalBandFor(total),
       nextTotalBand: nextTotalBand(total),
       totalXp: out.reduce((a, s) => a + s.xp, 0),
@@ -527,6 +534,7 @@
           bestDay: bestDay ? { day: bestDay.key, runs: bestDay.runs, minutes: Math.round(bestDay.minutes), points: bestDay.points } : null,
           bestWeek,
           thisWeek: thisWeekPts,
+          lastDays,
           bestStreak,
           longestRun: longest ? { creatureId: longest.id, durationMs: longest.durationMs, durationLabel: longest.durationLabel } : null,
           mostSubagents: mostSubs && mostSubs.subagents ? { creatureId: mostSubs.id, subagents: mostSubs.subagents } : null,

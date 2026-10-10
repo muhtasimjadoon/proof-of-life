@@ -14,6 +14,7 @@ const {
   computeCreature, detectDomain, SPECIES, RARITY, operatorScore, weekScore, levelFor, xpGain, hashString, mulberry32, breedCreature,
   durationLabel, isOpenSession, HERD_WINDOW, Skills, MYTHIC_RUN_MS, MYTHIC_SUBAGENTS, MYTHIC_STREAK,
 } = require('./engine');
+const Variants = require('./public/variants.js');
 
 // ---- build identity ------------------------------------------------------
 // The page is read from disk on every request, so after an update the browser
@@ -450,12 +451,13 @@ function statsOf(op) {
   // they are reported separately so nothing is hidden
   let machineMs = 0, openMs = 0, openCount = 0;
   for (const c of op.creatures) { if (isOpenSession(c)) { openMs += c.durationMs; openCount++; } else machineMs += c.durationMs || 0; }
-  const rarest = op.creatures.reduce((best, c) => (c.rarity.index > (best ? best.rarity.index : -1) ? c : best), null);
+  // one 'rarest' ranking for every page (variants.js): tier, then Shiny, then Holo / Gold Chrome, then the longer run
+  const rarest = op.creatures.reduce((best, c) => (c.bredBy ? best : !best || Variants.rarer(c, best) < 0 ? c : best), null);
   return {
     total: op.creatures.length,
     machineHours: Math.round(machineMs / 360000) / 10,
     openSessions: { count: openCount, hours: Math.round(openMs / 360000) / 10 },
-    rarest: rarest ? { name: rarest.fullName, tier: rarest.rarity.tier } : null,
+    rarest: rarest ? { id: rarest.id, name: rarest.fullName, tier: rarest.rarity.tier, shiny: Variants.variantOf(rarest).shiny, edition: Variants.variantOf(rarest).name } : null,
     sick: op.creatures.filter((c) => c.status === 'sick').length,
     eggs: Object.keys(op.eggs).length,
   };

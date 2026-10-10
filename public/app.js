@@ -6,8 +6,9 @@ function hashString(str) { let h = 2166136261 >>> 0; for (let i = 0; i < str.len
 const rngFor = (seed) => mulberry32((seed ^ 0x9e3779b9) >>> 0);
 
 const LEVEL_XP = [0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700];
-const LEVEL_LABELS = ['Newborn', 'Growing', 'Stronger', 'Thriving', 'Seasoned', 'Veteran', 'Elder', 'Ancient', 'Exalted', 'Fully Raised'];
-function levelLabel(c) { if (c.status === 'sick' && (c.level || 1) < 2) return 'Weak & Sick'; return LEVEL_LABELS[Math.min(c.level || 1, LEVEL_LABELS.length) - 1]; }
+// one growth vocabulary everywhere: the stage names from variants.js (Hatchling, Juvenile, Adult, Elder, Exalted)
+function levelLabel(c) { return stageOf(c).name; }
+const lvLine = (c) => `Lv ${c.level || 1} · ${stageOf(c).name}`;
 function xpPct(c) { const l = c.level || 1; if (l >= LEVEL_XP.length) return 1; return Math.max(0, Math.min(1, ((c.xp || 0) - LEVEL_XP[l - 1]) / (LEVEL_XP[l] - LEVEL_XP[l - 1]))); }
 
 // ---- skills: computed server-side from real runs (skills.js), rendered here ----
@@ -110,6 +111,8 @@ const PL_DEFS = [
   LG('pl-mgold', [0, 0, 0.3, 1], [[0, '#fff8d2'], [0.16, '#ffd96e'], [0.33, '#c4871a'], [0.47, '#fff0a6'], [0.6, '#e2a532'], [0.8, '#8c5a0a'], [1, '#4a2d03']]),
   LG('pl-mchrome', [0, 0, 0.3, 1], [[0, '#ffffff'], [0.16, '#e6ebf2'], [0.34, '#8994a6'], [0.48, '#f8fafd'], [0.62, '#a3aec0'], [0.82, '#4c5465'], [1, '#1d2029']]),
   LG('pl-holo', [0, 0, 1, 0.25], HOLO),
+  // the Holo body: a saturated rainbow at a steep angle, repeating every ~60px so every body shows the full spectrum
+  `<linearGradient id="pl-holob" gradientUnits="userSpaceOnUse" x1="52" y1="70" x2="104" y2="128" spreadMethod="reflect">${ST([[0, '#ff6fc8'], [0.2, '#ffd25e'], [0.4, '#6dffa8'], [0.6, '#52d0ff'], [0.8, '#9d7bff'], [1, '#ff6fc8']])}</linearGradient>`,
   LG('pl-irid', [0, 0, 1, 0.3], [[0, '#ff8ad8'], [0.2, '#8ae8ff'], [0.4, '#c8a2ff'], [0.6, '#9dffcf'], [0.8, '#ffd98a'], [1, '#ff8ad8']]),
   LG('pl-sheen', [0, 0, 1, 0], [[0, '#fff', 0], [0.42, '#fff', 0], [0.5, '#fff', 0.85], [0.58, '#fff', 0], [1, '#fff', 0]]),
   LG('pl-trim-s', [0, 0, 1, 1], [[0, '#ffffff'], [0.3, '#cdd5e1'], [0.55, '#6b7587'], [0.78, '#eef2f7'], [1, '#808a9c']]),
@@ -138,7 +141,7 @@ function artCtx(c, rng) {
   const T = c.rarity && TIERI[c.rarity.tier] != null ? c.rarity.tier : 'Common', ti = TIERI[T], rk = Math.min(4, ti);
   const tr = c.traits || [];
   const v = PV ? PV.variantOf(c) : null;
-  const stage = PV ? PV.stageOf(c).key : 'adult', look = STAGE_LOOK[stage] || STAGE_LOOK.adult;
+  const sk0 = PV ? PV.stageOf(c).key : 'adult', stage = sk0 === 'exalted' ? 'elder' : sk0, look = STAGE_LOOK[stage] || STAGE_LOOK.adult;
   const night = tr.includes('Nightshift'), sick = c.status === 'sick', healed = c.status === 'healed' || tr.includes('Survivor');
   const pk = (c.parents || []).map((n) => NAME2KEY[String(n).trim()]).filter(Boolean);
   const hybrid = pk.length === 2;
@@ -176,6 +179,7 @@ const sub = (A, salt) => mulberry32(hashString(salt + ':' + (A.c.seed >>> 0)));
 // ---- shared drawing helpers ----
 function bodyFill(A) {
   if (A.mat === 'gold') return 'url(#pl-mgold)';
+  if (A.mat === 'holo') return 'url(#pl-holob)';
   if (A.mat === 'chrome') return 'url(#pl-mchrome)';
   return `url(#bd-${A.sid})`;
 }
@@ -183,13 +187,20 @@ function vinylStack(A, K, o) {
   o = o || {};
   const s = A.sid, R = A.R, b = A.pal.body, u = (x) => `<use href="#b-${s}" ${x}/>`, metal = A.mat === 'gold' || A.mat === 'chrome';
   let q = u(`fill="none" stroke="${o.outline && !metal ? o.outline : metal ? (A.mat === 'gold' ? '#4a2d03' : '#1d2029') : darken(b, 0.6)}" stroke-width="4.5" stroke-linejoin="round"`);
-  q += o.inner != null && !metal ? o.inner : u(`fill="${bodyFill(A)}"`);
-  if (metal && o.inner != null) q += `<g opacity=".35" style="mix-blend-mode:multiply">${o.inner}</g>`;
+  const foil = metal || A.mat === 'holo';
+  q += o.inner != null && !foil ? o.inner : u(`fill="${bodyFill(A)}"`);
+  if (foil && o.inner != null) q += metal ? `<g opacity=".35" style="mix-blend-mode:multiply">${o.inner}</g>` : `<g opacity=".6" style="mix-blend-mode:soft-light">${o.inner}</g>`;
   if (A.hybrid && o.inner == null) q += u('fill="url(#pl-shade)"');
   if (o.pattern) q += o.pattern;
-  if (A.mat === 'holo' || A.mat === 'iridescent') {
-    // foil that slides across the body (Shiny holo, Legendary holo) or a full animated iridescence (Mythic)
-    const irid = A.mat === 'iridescent';
+  if (A.mat === 'holo') {
+    // Holo: an angled rainbow foil body (bodyFill), shaded for volume, a moving foil glint and a crisp diagonal spec band
+    q += u('fill="url(#pl-shade)"');
+    q += `<g clip-path="url(#cl-${s})"><rect class="pl-foil" x="-170" y="0" width="540" height="220" fill="url(#pl-holo)" opacity=".35" style="mix-blend-mode:overlay"/>`;
+    q += `<g transform="rotate(-32 100 ${F(K.sy)})"><rect x="${F(K.sx - R * 0.62)}" y="${F(K.sy - R * 2)}" width="${F(R * 0.2)}" height="${F(R * 4)}" fill="#fff" opacity=".62"/><rect x="${F(K.sx - R * 0.34)}" y="${F(K.sy - R * 2)}" width="${F(R * 0.07)}" height="${F(R * 4)}" fill="#fff" opacity=".8"/><rect x="${F(K.sx + R * 0.38)}" y="${F(K.sy - R * 2)}" width="${F(R * 0.12)}" height="${F(R * 4)}" fill="#fff" opacity=".28"/></g></g>`;
+  }
+  if (A.mat === 'iridescent') {
+    // a full animated iridescence (Mythic)
+    const irid = true;
     q += `<g clip-path="url(#cl-${s})"><rect class="pl-foil" x="-170" y="0" width="540" height="220" fill="url(#pl-${irid ? 'irid' : 'holo'})" opacity="${irid ? 0.9 : 0.62}" style="mix-blend-mode:${irid ? 'color' : 'hard-light'}"/><rect class="pl-foil pl-slow" x="-170" y="0" width="540" height="220" fill="url(#pl-${irid ? 'irid' : 'holo'})" opacity="${irid ? 0.4 : 0.3}" style="mix-blend-mode:${irid ? 'overlay' : 'color'}"/></g>`;
   }
   if (!o.noAO) q += u('fill="url(#pl-ao)"');
@@ -209,25 +220,32 @@ function vinylStack(A, K, o) {
 function patternSVG(A, K) {
   const p = A.v && A.v.pattern; if (!p) return '';
   const R = A.R, cy = K.cy, rng = sub(A, 'pattern'), b = A.pal.body;
-  const light = A.mat === 'gold' ? '#fff3c4' : A.mat === 'chrome' ? '#ffffff' : lighten(b, 0.42), deep = A.mat === 'gold' ? '#8c5a0a' : darken(b, 0.3), alt = A.pal.trim || light;
+  // two inks with real contrast against the body: a pale one and a deep one (white and ink on foil and metal)
+  const shiny = A.mat === 'gold' || A.mat === 'chrome' || A.mat === 'holo';
+  const light = A.mat === 'gold' ? '#fff6d0' : shiny ? '#ffffff' : lighten(b, 0.62), deep = A.mat === 'gold' ? '#7a4a06' : A.mat === 'holo' ? '#2b1d5c' : darken(b, 0.45);
+  const alt = shiny ? light : mix(A.pal.trim || light, '#ffffff', 0.25);
   let q = '';
   if (p.key === 'spots') {
-    for (let i = 0; i < 9; i++) { const x = 100 + (rng() * 2 - 1) * R * 0.95, y = cy + (rng() * 2 - 1) * R * 0.9, r = R * (0.07 + rng() * 0.09); q += `<ellipse cx="${F(x)}" cy="${F(y)}" rx="${F(r)}" ry="${F(r * 0.86)}" fill="${i % 3 ? deep : alt}" opacity="${i % 3 ? 0.5 : 0.62}"/>`; }
+    for (let i = 0; i < 8; i++) { const x = 100 + (rng() * 2 - 1) * R * 0.9, y = cy + (rng() * 2 - 1) * R * 0.85, r = R * (0.1 + rng() * 0.1); q += `<ellipse cx="${F(x)}" cy="${F(y)}" rx="${F(r)}" ry="${F(r * 0.86)}" fill="${i % 3 ? deep : alt}" opacity="${i % 3 ? 0.62 : 0.85}"/>`; }
   } else if (p.key === 'stripes') {
-    const ang = -24 + rng() * 10; let s = '';
-    for (let i = -3; i <= 3; i++) s += `<rect x="${F(100 + i * R * 0.42 - R * 0.09)}" y="${F(cy - R * 1.6)}" width="${F(R * 0.18)}" height="${F(R * 3.2)}"/>`;
-    q += `<g fill="${deep}" opacity=".4" transform="rotate(${F(ang)} 100 ${F(cy)})">${s}</g>`;
+    const ang = -24 + rng() * 10; let s2 = '';
+    for (let i = -3; i <= 3; i++) s2 += `<rect x="${F(100 + i * R * 0.46 - R * 0.12)}" y="${F(cy - R * 1.6)}" width="${F(R * 0.24)}" height="${F(R * 3.2)}"/>`;
+    q += `<g fill="${deep}" opacity=".55" transform="rotate(${F(ang)} 100 ${F(cy)})">${s2}</g>`;
   } else if (p.key === 'panel') {
-    q += `<ellipse cx="100" cy="${F(cy + R * 0.55)}" rx="${F(R * 0.78)}" ry="${F(R * 0.62)}" fill="${light}" opacity=".5"/><ellipse cx="100" cy="${F(cy + R * 0.55)}" rx="${F(R * 0.78)}" ry="${F(R * 0.62)}" fill="none" stroke="${deep}" stroke-opacity=".35" stroke-width="1.2" stroke-dasharray="2.5 3"/>`;
+    // Two-Tone: the lower body in a second, much paler tone with a clean wavy seam
+    const y0 = cy + R * (0.1 + rng() * 0.12), amp = R * 0.06; let d = `M${F(100 - R * 1.6)} ${F(y0)}`;
+    for (let i = 0; i < 6; i++) { const x1 = 100 - R * 1.6 + (i + 0.5) * (R * 3.2) / 6, x2 = 100 - R * 1.6 + (i + 1) * (R * 3.2) / 6; d += `Q${F(x1)} ${F(y0 + (i % 2 ? amp : -amp))} ${F(x2)} ${F(y0)}`; }
+    const fillD = d + `L${F(100 + R * 1.6)} ${F(cy + R * 2)}L${F(100 - R * 1.6)} ${F(cy + R * 2)}Z`;
+    q += `<path d="${fillD}" fill="${alt}" opacity=".78"/><path d="${d}" fill="none" stroke="${deep}" stroke-opacity=".6" stroke-width="2.2"/>`;
   } else if (p.key === 'freckles') {
-    for (const sd of [-1, 1]) for (let i = 0; i < 6; i++) { const x = 100 + sd * R * (0.42 + rng() * 0.32), y = K.eyeY + R * (0.18 + rng() * 0.28); q += `<circle cx="${F(x)}" cy="${F(y)}" r="${F(1.3 + rng() * 1.2)}" fill="${deep}" opacity=".7"/>`; }
-    for (let i = 0; i < 7; i++) { const x = 100 + (rng() * 2 - 1) * R * 0.8, y = cy + R * (0.25 + rng() * 0.6); q += `<circle cx="${F(x)}" cy="${F(y)}" r="${F(0.9 + rng() * 1.2)}" fill="${light}" opacity=".6"/>`; }
+    for (const sd of [-1, 1]) for (let i = 0; i < 6; i++) { const x = 100 + sd * R * (0.42 + rng() * 0.32), y = K.eyeY + R * (0.18 + rng() * 0.28); q += `<circle cx="${F(x)}" cy="${F(y)}" r="${F(1.8 + rng() * 1.5)}" fill="${deep}" opacity=".85"/>`; }
+    for (let i = 0; i < 7; i++) { const x = 100 + (rng() * 2 - 1) * R * 0.8, y = cy + R * (0.25 + rng() * 0.6); q += `<circle cx="${F(x)}" cy="${F(y)}" r="${F(1.4 + rng() * 1.6)}" fill="${light}" opacity=".85"/>`; }
   } else if (p.key === 'zigzag') {
-    const y0 = cy + R * (0.25 + rng() * 0.2), amp = R * 0.11, n = 9; let d = '';
+    const y0 = cy + R * (0.3 + rng() * 0.15), amp = R * 0.13, n = 8; let d = '';
     for (let i = 0; i <= n; i++) d += (i ? 'L' : 'M') + F(100 - R * 1.2 + (i * R * 2.4) / n) + ' ' + F(y0 + (i % 2 ? -amp : amp));
-    q += `<path d="${d}" fill="none" stroke="${alt}" stroke-width="${F(R * 0.11)}" stroke-linejoin="round" opacity=".55"/><path d="${d}" transform="translate(0 ${F(R * 0.2)})" fill="none" stroke="${deep}" stroke-width="${F(R * 0.06)}" stroke-linejoin="round" opacity=".38"/>`;
+    q += `<path d="${d}" fill="none" stroke="${deep}" stroke-width="${F(R * 0.2)}" stroke-linejoin="round" opacity=".5"/><path d="${d}" fill="none" stroke="${alt}" stroke-width="${F(R * 0.12)}" stroke-linejoin="round" opacity=".92"/>`;
   } else if (p.key === 'stars') {
-    for (let i = 0; i < 8; i++) { const x = 100 + (rng() * 2 - 1) * R * 0.9, y = cy + (rng() * 2 - 1) * R * 0.85, s = R * (0.05 + rng() * 0.06); q += `<path d="${star4(x, y, s)}" fill="${i % 2 ? alt : light}" opacity=".8"/>`; }
+    for (let i = 0; i < 7; i++) { const x = 100 + (rng() * 2 - 1) * R * 0.85, y = cy + (rng() * 2 - 1) * R * 0.8, s2 = R * (0.08 + rng() * 0.07); q += `<path d="${star4(x, y, s2)}" fill="${i % 2 ? alt : light}" stroke="${deep}" stroke-opacity=".35" stroke-width=".8" opacity=".95"/>`; }
   }
   return `<g clip-path="url(#cl-${A.sid})">${q}</g>`;
 }
@@ -398,8 +416,8 @@ function prismShard(A, x, y, ang, h) {
 function lumenRing(x, y) {
   return `<circle cx="${F(x)}" cy="${F(y)}" r="9" fill="none" stroke="#3d2410" stroke-width="5.5"/><circle cx="${F(x)}" cy="${F(y)}" r="9" fill="none" stroke="url(#pl-bronze)" stroke-width="3.5"/><path d="M${F(x - 7)} ${F(y - 5)}A9 9 0 0 1 ${F(x + 2)} ${F(y - 9)}" fill="none" stroke="#f3c98a" stroke-width="1" opacity=".8"/>`;
 }
-function wispFlame(A, x, y) {
-  return `<g transform="translate(${F(x)} ${F(y + 3)})"><g class="pl-flicker"><path d="M0 0C-10 -3 -9 -14 -1 -17C-4 -12 4 -12 2 -23C12 -15 11 -3 0 0Z" fill="url(#wf-${A.sid})" stroke="${darken(A.pal.body, 0.35)}" stroke-width="2.4" stroke-linejoin="round" paint-order="stroke"/><path d="M-1 -4C-5 -6 -4 -11 0 -12" fill="none" stroke="#fff" stroke-width="1.2" stroke-linecap="round" opacity=".8"/></g></g>`;
+function wispFlame(A, x, y, k) {
+  return `<g transform="translate(${F(x)} ${F(y + 3)})${k ? ` scale(${k})` : ''}"><g class="pl-flicker"><path d="M0 0C-10 -3 -9 -14 -1 -17C-4 -12 4 -12 2 -23C12 -15 11 -3 0 0Z" fill="url(#wf-${A.sid})" stroke="${darken(A.pal.body, 0.35)}" stroke-width="2.4" stroke-linejoin="round" paint-order="stroke"/><path d="M-1 -4C-5 -6 -4 -11 0 -12" fill="none" stroke="#fff" stroke-width="1.2" stroke-linecap="round" opacity=".8"/></g></g>`;
 }
 function stalkEye(A, bx, by, ex, ey, er, delay) {
   const b = A.pal.body;
@@ -733,7 +751,7 @@ SPECIES_PARTS.wisp = {
     return { d, cy, sx: 100, sy: cy, float: true, headTop: { x: 100, y: cy - R }, brow: cy - R * 0.5, bw: R * 0.86, eyeY, er, scarAt: { x: 100 + R * 0.55, y: cy - R * 0.5 },
       hat: { x: 100, y: cy - R + 6, w: R * 0.56 }, ear: { y: cy - R * 0.12, dx: R * 1.0 }, neck: { y: cy + R * 0.5, w: R * 1.02 }, gog: { y: cy - R * 0.72, dx: R * 0.24, r: R * 0.14 }, bowAt: { x: 100 - R * 0.6, y: cy - R * 0.72 }, sproutAt: { x: 100 + 10, y: cy - R + 1 }, visW: R * 1.04 };
   },
-  ornament(A, K) { if (A.v && A.v.accessory && A.v.accessory.key === 'beanie') return ''; return wispFlame(A, K.headTop.x + (A.ti >= 4 ? A.R * 0.36 : 0), K.headTop.y + (A.ti >= 4 ? 6 : 0)); },
+  ornament(A, K) { if (A.v && A.v.accessory && A.v.accessory.key === 'beanie') return ''; return wispFlame(A, K.headTop.x + (A.ti >= 4 ? A.R * 0.36 : 0), K.headTop.y + (A.ti >= 4 ? 6 : 0), A.ti >= 4 ? 1.1 : 1.4); },
   detail(A, K) { return `<circle cx="100" cy="${F(K.cy - A.R * 0.25)}" r="${F(A.R * 0.5)}" fill="url(#pl-glow-w)" opacity=".75"/>`; },
   face(A, K) {
     const R = A.R, ey = K.eyeY, ex = R * 0.27 * 0.95 * Math.max(1, A.eyeK * 0.92); let q = blushAt(A, ey + K.er * 1.15, R * 0.48);
@@ -935,7 +953,8 @@ function crownFor(A, x, y) {
 }
 // hatchlings still sit in the bottom half of their shell
 function shellSVG(A, front) {
-  const R = A.R, W = R * 1.02, top = 197 - R * 0.48, rng = sub(A, 'shell');
+  // a wisp hatchling floats just above a lower, smaller shell
+  const low = A.sk === 'wisp', R = A.R, W = R * (low ? 0.9 : 1.02), top = 197 - R * (low ? 0.3 : 0.48), rng = sub(A, 'shell');
   if (!front) return `<ellipse cx="100" cy="${F(top + 4)}" rx="${F(W * 0.94)}" ry="${F(R * 0.16)}" fill="#8f7a58"/>`;
   const n = 9; let zz = '';
   for (let i = 0; i <= n; i++) zz += `L${F(100 + W - (i * 2 * W) / n)} ${F(top + (i % 2 ? -4 - rng() * 3 : 3 + rng() * 2))}`;
@@ -966,7 +985,7 @@ function creatureInner(c, rng) {
   const vb = A.mat === 'holo' || A.mat === 'iridescent' ? lighten(b, A.mat === 'iridescent' ? 0.3 : 0.22) : b;
   if (A.hybrid) { const pa = ART_PAL[A.pk[0]].body, pb = ART_PAL[A.pk[1]].body; d.push(LG(`bd-${s}`, [0, 0, 1, 1], [[0.1, pa], [0.5, mix(pa, pb, 0.5)], [0.9, pb]])); }
   else if (A.sk === 'hydra') d.push(RG(`bd-${s}`, ['40%', '30%', '80%'], [[0, lighten(vb, 0.65), 0.95], [0.45, lighten(vb, 0.1), 0.88], [1, darken(vb, 0.6), 0.95]]));
-  else if (A.sk === 'wisp') d.push(LG(`bd-${s}`, [0, 0, 0, 1], [[0, lighten(vb, 0.35), 0.97], [0.55, vb, 0.92], [1, vb, 0.25]]), LG(`wo-${s}`, [0, 0, 0, 1], [[0, darken(b, 0.6)], [0.6, darken(b, 0.6), 0.9], [1, darken(b, 0.6), 0.1]]));
+  else if (A.sk === 'wisp') d.push(LG(`bd-${s}`, [0, 0, 0, 1], [[0, lighten(vb, 0.35), 0.97], [0.55, vb, 0.92], [1, vb, 0.5]]), LG(`wo-${s}`, [0, 0, 0, 1], [[0, darken(b, 0.6)], [0.6, darken(b, 0.6), 0.9], [1, darken(b, 0.6), 0.1]]));
   else if (A.sk === 'lumen') d.push(RG(`bd-${s}`, ['50%', '55%', '58%'], [[0, '#fffbe8'], [0.25, lighten(vb, 0.55)], [0.55, lighten(vb, 0.12)], [0.85, darken(vb, 0.2)], [1, darken(vb, 0.55)]]));
   else d.push(RG(`bd-${s}`, ['36%', '26%', '88%', '32%', '22%'], [[0, lighten(vb, 0.55)], [0.2, lighten(vb, 0.22)], [0.55, vb], [0.82, darken(vb, 0.28)], [1, darken(vb, 0.5)]]));
   d.push(LG(`rim-${s}`, [0, 0, 1, 1], [[0, A.rimC, 0], [0.55, A.rimC, 0], [0.8, A.rimC, 0.55], [1, A.rimC, 0.95]]));
@@ -993,14 +1012,14 @@ function creatureInner(c, rng) {
   if (swarm) q.push(drawSwarm(A, K, false));
   if (A.stage === 'hatchling') q.push(shellSVG(A, false));
   // the creature (scaled by growth stage around its feet)
-  const k = A.look.k;
-  q.push(`<g transform="translate(100 196) scale(${k}) translate(-100 -196)"><g class="pl-bob${K.float ? ' pl-float' : ''}"><g class="pl-breathe">`);
+  const k = A.look.k, lift = A.stage === 'hatchling' && A.sk === 'wisp' ? 26 : 0;
+  q.push(`<g transform="translate(100 ${196 - lift}) scale(${k}) translate(-100 -196)"><g class="pl-bob${K.float ? ' pl-float' : ''}"><g class="pl-breathe">`);
   if (A.sick) q.push('<g transform="translate(100 196) scale(1.03 .95) translate(-100 -196)">');
   q.push(`<g transform="rotate(${F(A.tilt)} 100 ${K.float ? F(K.cy) : 196})">`);
   if (SP.back) q.push(SP.back(A, K));
   const ornament = A.other ? CREST[A.other](A, K) : SP.ornament ? SP.ornament(A, K) : '';
   if (ornament && A.look.orn > 0) { const ok = A.look.orn, hx = K.headTop.x, hy = K.headTop.y + 8; q.push(ok === 1 ? ornament : `<g transform="translate(${F(hx)} ${F(hy)}) scale(${ok}) translate(${F(-hx)} ${F(-hy)})">${ornament}</g>`); }
-  else if (ornament && (A.sk === 'lumen' || A.sk === 'wisp' || A.sk === 'moth')) { const hx = K.headTop.x, hy = K.headTop.y + 8; q.push(`<g transform="translate(${F(hx)} ${F(hy)}) scale(.55) translate(${F(-hx)} ${F(-hy)})">${ornament}</g>`); }
+  else if (ornament && (A.sk === 'lumen' || A.sk === 'wisp' || A.sk === 'moth')) { const hx = K.headTop.x, hy = K.headTop.y + 8, ks = A.sk === 'wisp' ? 1 : 0.55; q.push(`<g transform="translate(${F(hx)} ${F(hy)}) scale(${ks}) translate(${F(-hx)} ${F(-hy)})">${ornament}</g>`); }
   q.push(vinylStack(A, K, { inner: SP.inner ? SP.inner(A, K) : null, pattern: patternSVG(A, K), noSpec: A.sk === 'prism', noAO: A.sk === 'wisp' || A.sk === 'lumen', gloss: A.sk === 'hydra', outline: A.sk === 'wisp' ? `url(#wo-${s})` : A.sk === 'lumen' ? darken(b, 0.72) : null }));
   if (A.sick) q.push(`<use href="#b-${s}" fill="#6f8f5a" opacity=".3" style="mix-blend-mode:multiply"/>`);
   if (SP.detail) q.push(SP.detail(A, K));
@@ -1062,10 +1081,17 @@ function creatureMarkup(c) {
   return m;
 }
 // every drawing gets its own id suffix, so copies never share defs (deterministic look, unique ids)
+const CROP = { hatchling: '27 62 146 146', juvenile: '19 44 162 162', adult: '13 30 174 174', elder: '13 30 174 174', exalted: '11 26 178 178' };
+function cropBox(c) {
+  if (c.rarity && c.rarity.tier === 'Mythic') return '6 12 188 188'; // the halo floats high
+  const st = PV ? PV.stageOf(c).key : 'adult';
+  if (st === 'hatchling' && c.speciesKey === 'wisp') return '21 38 160 160'; // a wisp floats up out of its shell
+  return CROP[st] || CROP.adult;
+}
 function creatureSVG(c, size, opts) {
   ensurePlDefs();
   const inner = creatureMarkup(c).split('__I__').join('-' + (++artSeq).toString(36));
-  return `<svg class="art${opts && opts.live ? ' live' : ''}" viewBox="0 18 200 200" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${inner}</svg>`;
+  return `<svg class="art${opts && opts.live ? ' live' : ''}${opts && opts.crop ? ' crop' : ''}" viewBox="${opts && opts.crop ? cropBox(c) : '0 18 200 200'}" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${inner}</svg>`;
 }
 // ==== ART END ====
 let ART = {};
@@ -1131,21 +1157,23 @@ const LOCK = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke
 
 // ---- tiles: art is built only when a tile nears the viewport, then cached by look ----
 function tileKey(c) { return (c.level || 1) + '|' + (c.status || '') + '|' + (c.traits || []).length + '|' + (c.xp || 0) + '|' + (c.att ? 1 : 0); }
+// a short serial for every creature: the first four of its signature fingerprint (or its seed), so twins never look alike
+const tagOf = (c) => '#' + (c.att && c.att.fp ? c.att.fp.slice(0, 4) : (c.seed >>> 0).toString(16).toUpperCase().padStart(8, '0').slice(-4));
+const SAVE_IC = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 19.5h14"/></svg>';
 function tileHTML(c, o) {
   o = o || {};
   const v = variantOf(c), st = stageOf(c), L = c.level || 1;
-  const art = o.eager ? creatureSVG(c, 128) : `<div class="art-slot" data-art="${escapeXml(c.id)}"></div>`;
+  const art = o.eager ? creatureSVG(c, 128, { crop: true }) : `<div class="art-slot" data-art="${escapeXml(c.id)}"></div>`;
   const care = c.status === 'sick' ? `<div class="care">needs care · a few good runs will heal it</div>` : c.status === 'healed' ? `<div class="care healed">healed ✓</div>` : '';
   const isNew = !o.noNew && freshIds.has(c.id);
   const cls = ['tile', isNew ? 'new' : '', c.rarity.tier === 'Legendary' ? 'leg' : '', c.rarity.tier === 'Mythic' ? 'myth' : '', v && v.shiny ? 'shiny' : ''].filter(Boolean).join(' ');
   return `<div class="${cls}" style="--tier:${c.rarity.chip}" data-id="${escapeXml(c.id)}" data-k="${tileKey(c)}">
-    <span class="rchip" style="color:${c.rarity.chip}">${c.rarity.tier}</span>
-    ${c.att ? `<span class="verified" title="signed · verifiable">✓</span>` : ''}
-    <div class="tile-art">${art}<span class="lvpip st-${st.key}" title="Lv ${L} · ${escapeXml(levelLabel(c))} · ${st.name}">${L}</span>${v && v.shiny ? '<span class="shinychip" title="Shiny: about 1 in 64">✦ Shiny</span>' : ''}</div>
+    <div class="t-top"><span class="rchip" style="color:${c.rarity.chip}">${c.rarity.tier}</span><span class="t-tag" title="${c.att ? 'signed · verifiable · fingerprint ' + escapeXml(c.att.fp) : 'seed serial'}">${tagOf(c)}${c.att ? '<i class="verified inline">✓</i>' : ''}</span></div>
+    <div class="tile-art">${art}${v && v.shiny ? '<span class="shinychip" title="Shiny: about 1 in 64">✦ Shiny</span>' : ''}<button class="tsave" type="button" title="Save this creature's share card" aria-label="Save share card">${SAVE_IC}<span>Card</span></button></div>
     <div class="nm">${escapeXml(c.fullName)}</div>
     <div class="var">${escapeXml(v ? v.full : c.speciesName)}</div>
     <div class="sub">${escapeXml(shortOrigin(c))}</div>
-    <div class="lvl"><span>Lv ${L} · ${escapeXml(levelLabel(c))}</span><div class="xp"><i style="width:${Math.round(xpPct(c) * 100)}%"></i></div></div>
+    <div class="lvl"><span><i class="stdot st-${st.key}"></i>${escapeXml(lvLine(c))}</span><div class="xp"><i style="width:${Math.round(xpPct(c) * 100)}%"></i></div></div>
     ${care}</div>`;
 }
 function mcardHTML(c, origin) {
@@ -1178,7 +1206,14 @@ function reconcile(grid, items, render, keyOf) {
   for (const el of have.values()) el.remove();
   hydrateArt(grid);
 }
-function bindCreatureEl(el) { if (el && el.dataset && el.dataset.id) el.addEventListener('click', () => openModal(findCreature(el.dataset.id))); }
+function bindCreatureEl(el, find) {
+  if (!el || !el.dataset || !el.dataset.id) return;
+  el.addEventListener('click', (e) => {
+    const c = (find || findCreature)(el.dataset.id);
+    if (e.target.closest && e.target.closest('.tsave')) { e.stopPropagation(); downloadCard(c, 'portrait'); return; }
+    openModal(c);
+  });
+}
 
 // ---- data ----
 let latest = { creatures: [], eggs: [], me: null, stats: { total: 0, machineHours: 0, sick: 0 } };
@@ -1305,10 +1340,10 @@ function showcaseHTML(c) {
     <div class="sc-info"><span class="eyebrow">Newest arrival · ${ago(c.bornAt)}</span>
       <h2>${escapeXml(c.fullName)}</h2>
       <div class="sc-variant">${v && v.shiny ? '<span class="shinychip big">✦ Shiny</span>' : ''}${escapeXml(v ? v.full : c.speciesName)}</div>
-      <div class="chips"><span class="chip" style="color:${c.rarity.chip}">${T}</span><span class="trait">${escapeXml(c.speciesName)}</span><span class="trait">${escapeXml(st.name)} · Lv ${c.level || 1}</span>${(c.traits || []).map((t) => `<span class="trait">${escapeXml(t)}</span>`).join('')}</div>
+      <div class="chips"><span class="chip" style="color:${c.rarity.chip}">${T}</span><span class="trait">${escapeXml(c.speciesName)}</span><span class="trait">${escapeXml(lvLine(c))}</span>${(c.traits || []).map((t) => `<span class="trait">${escapeXml(t)}</span>`).join('')}</div>
       <p class="note sc-origin">${escapeXml(originLine(c))}</p>
       ${gains.length ? `<div class="gains">${gains.map(([k, v2]) => `<span class="gain">+${fmtN(v2)} ${escapeXml(skillName(k))}</span>`).join('')}</div>` : ''}
-      <div class="btns left"><button class="primary" id="replay">Replay the hatch</button><button id="savenew">Save card</button><button id="opennew">Details</button></div></div></div>`;
+      <div class="btns left"><button class="primary" id="savenew">${SAVE_IC} Save share card</button><button id="replay">Replay the hatch</button><button id="opennew">Details</button></div></div></div>`;
 }
 function sec_home() {
   countVisit();
@@ -1330,18 +1365,27 @@ function sec_home() {
   const os = latest.stats.openSessions;
   const stats = `<div class="statstrip"><div class="stat"><b>${fmtN(cs.length)}</b><span>creatures</span></div><div class="stat"><b>${latest.stats.machineHours}</b><span>hours Claude worked</span></div><div class="stat"><b>${latest.skills ? fmtN(latest.skills.totalLevel) : '—'}</b><span>total level</span></div>${hasPower(latest.me) ? `<div class="stat"><b>${fmtN(latest.me.score)}</b><span>power</span></div><div class="stat"><b>${fmtN(latest.me.week)}</b><span>points this week</span></div>` : ''}
     ${os && os.count ? `<p class="note">Not counted as machine time: ${plural(os.count, 'session')} left open for ${os.hours} h. ${os.count === 1 ? 'It keeps its creature.' : 'They keep their creatures.'}</p>` : ''}</div>`;
-  const preview = `<div class="p-head"><h2>Recent hatches</h2><span class="note link" id="seeall">see all ${fmtN(cs.length)} →</span></div><div class="shelf recent" id="recent"></div>`;
+  const seg = (k, label) => `<button type="button" class="seg-b ${homeStrip === k ? 'on' : ''}" data-strip="${k}" aria-pressed="${homeStrip === k}">${label}</button>`;
+  const preview = `<div class="p-head"><div class="ph-l"><h2>${homeStrip === 'newest' ? 'Recent hatches' : 'Your finest'}</h2><div class="seg" role="group" aria-label="show">${seg('finest', 'Finest')}${seg('newest', 'Newest')}</div></div><span class="note link" id="seeall">see all ${fmtN(cs.length)} →</span></div><div class="shelf recent" id="recent"></div>`;
   return `${welcome}${showcaseHTML(newest)}${growing}
     <div class="home-row">${today}${dexPanel}${week}</div>
     ${stats}
     <div class="panel" style="margin-top:16px">${preview}</div>`;
 }
 
+// the home strip: your finest (rarest and most raised) or the newest hatches
+let homeStrip = (() => { try { return localStorage.getItem('pol_strip') === 'newest' ? 'newest' : 'finest'; } catch { return 'finest'; } })();
+const stripList = () => (homeStrip === 'newest' ? latest.creatures.slice(0, 10) : latest.creatures.slice().sort(byFeatured).slice(0, 10));
+
 // ---- section: collection (filters, sort, paging; tiles update in place) ----
-const COLL_DEFAULT = { species: 'all', tier: 'all', trait: 'all', look: 'all', sort: 'newest', q: '', shown: 60 };
-let coll = (() => { try { return Object.assign({}, COLL_DEFAULT, JSON.parse(localStorage.getItem('pol_coll') || '{}'), { shown: 60 }); } catch { return Object.assign({}, COLL_DEFAULT); } })();
+const COLL_DEFAULT = { species: 'all', tier: 'all', trait: 'all', look: 'all', sort: 'featured', q: '', shown: 60 };
+let coll = (() => { try { return Object.assign({}, COLL_DEFAULT, JSON.parse(localStorage.getItem('pol_coll2') || '{}'), { shown: 60 }); } catch { return Object.assign({}, COLL_DEFAULT); } })();
 let collOpen = false;
-function saveColl() { try { const { shown, ...keep } = coll; localStorage.setItem('pol_coll', JSON.stringify(keep)); } catch {} }
+function saveColl() { try { const { shown, ...keep } = coll; localStorage.setItem('pol_coll2', JSON.stringify(keep)); } catch {} }
+// Featured: the rarest and most raised first (rarity, Shiny and editions from variants.js, plus two points a level)
+const featScore = (c) => (PV ? PV.rankScore(c) : c.rarity.index * 10) + 2 * (c.level || 1);
+const byFeatured = (a, b) => featScore(b) - featScore(a) || (b.durationMs || 0) - (a.durationMs || 0) || b.bornAt - a.bornAt;
+const byRarest = (a, b) => (PV ? PV.rarer(a, b) : b.rarity.index - a.rarity.index || (b.durationMs || 0) - (a.durationMs || 0));
 function collList() {
   const q = coll.q.trim().toLowerCase();
   let list = latest.creatures.filter((c) => {
@@ -1359,11 +1403,11 @@ function collList() {
     return true;
   });
   const by = {
-    newest: (a, b) => b.bornAt - a.bornAt, oldest: (a, b) => a.bornAt - b.bornAt,
-    rarest: (a, b) => b.rarity.index - a.rarity.index || (variantOf(b).shiny ? 1 : 0) - (variantOf(a).shiny ? 1 : 0) || (b.durationMs || 0) - (a.durationMs || 0),
+    featured: byFeatured, newest: (a, b) => b.bornAt - a.bornAt, oldest: (a, b) => a.bornAt - b.bornAt,
+    rarest: byRarest,
     level: (a, b) => (b.level || 1) - (a.level || 1) || (b.xp || 0) - (a.xp || 0), longest: (a, b) => (b.durationMs || 0) - (a.durationMs || 0),
     name: (a, b) => a.fullName.localeCompare(b.fullName),
-  }[coll.sort] || ((a, b) => b.bornAt - a.bornAt);
+  }[coll.sort] || byFeatured;
   return list.sort(by);
 }
 function selectHTML(id, val, opts, label) { return `<label class="fsel"><span>${label}</span><select id="${id}">${opts.map(([v, t]) => `<option value="${escapeXml(v)}" ${v === val ? 'selected' : ''}>${escapeXml(t)}</option>`).join('')}</select></label>`; }
@@ -1375,8 +1419,8 @@ function sec_collection() {
   const traitSet = new Set(); cs.forEach((c) => (c.traits || []).forEach((t) => traitSet.add(t)));
   const traits = [['all', 'Any trait']].concat([...traitSet].sort().map((t) => [t, t]));
   const looks = [['all', 'Any look'], ['shiny', '✦ Shiny only']].concat(PV ? PV.STAGES.map((s) => ['stage:' + s.key, s.name + 's']) : []).concat(PV ? Object.values(PV.ACCESSORIES).map((a) => ['acc:' + a.key, 'Wearing ' + a.name.toLowerCase()]) : []);
-  const sorts = [['newest', 'Newest'], ['rarest', 'Rarest'], ['level', 'Highest level'], ['longest', 'Longest run'], ['oldest', 'Oldest'], ['name', 'Name']];
-  const active = ['species', 'tier', 'trait', 'look'].filter((k) => coll[k] !== 'all').length + (coll.sort !== 'newest' ? 1 : 0);
+  const sorts = [['featured', 'Featured'], ['newest', 'Newest'], ['rarest', 'Rarest'], ['level', 'Highest level'], ['longest', 'Longest run'], ['oldest', 'Oldest'], ['name', 'Name']];
+  const active = ['species', 'tier', 'trait', 'look'].filter((k) => coll[k] !== 'all').length + (coll.sort !== 'featured' ? 1 : 0);
   return `<div class="coll-bar${collOpen ? ' open' : ''}">
       <button class="ghost small cfilt" id="cfilt" aria-expanded="${collOpen ? 'true' : 'false'}">Filters${active ? ` · ${active}` : ''}</button>
       <label class="fsearch"><input id="cq" type="search" placeholder="Search names and variants" value="${escapeXml(coll.q)}" aria-label="search"/></label>
@@ -1496,11 +1540,12 @@ function sec_proof() {
   const pin = { colorway: 'classic', expression: 'grin' };
   const rarity = `<div class="rar-ladder">${RARITY_RULES.map(([t, rule]) => `<div class="rar ${t === 'Mythic' ? 'myth' : ''}"><div class="rar-art">${creatureSVG(demoCreature('rule-' + t, mk, t, { salt: 'rule', level: 6, vo: Object.assign({ accessory: TIERI[t] >= 1 ? 'headphones' : null, pattern: TIERI[t] >= 1 ? 'spots' : null }, pin) }), 112)}</div><span class="chip" style="color:${TIERC[t]}">${t}</span><div class="note"><b>${rule}</b><br>${RARITY_ADDS[t]}</div></div>`).join('')}</div>`;
   const species = `<div class="sp-grid">${SPECIES_RULES.map(([k, d, sig]) => `<div class="sp">${creatureSVG(demoCreature('sp-' + k, k, 'Rare', { salt: 'sp', level: 6, vo: { colorway: 'classic', expression: 'grin' } }), 64)}<div><b>${SPECIES[k].name} <span class="note">· ${d}</span></b><span>${sig}</span></div></div>`).join('')}</div>`;
-  const hooks = `<div class="hooks">
-    <div class="hook"><b>UserPromptSubmit</b><span>egg laid</span></div><span class="arrow">→</span>
-    <div class="hook"><b>SubagentStop</b><span>each subagent, counted</span></div><span class="arrow">→</span>
-    <div class="hook"><b>Stop</b><span>hatched and signed</span></div><span class="arrow">→</span>
-    <div class="hook born"><b>Creature born</b><span>species, rarity, skills</span></div></div>`;
+  // a vertical flow: it never wraps into a dangling arrow, at any width
+  const hooks = `<ol class="hooks">
+    <li class="hook"><b>UserPromptSubmit</b><span>egg laid, the clock starts</span></li>
+    <li class="hook"><b>SubagentStop</b><span>each subagent, counted</span></li>
+    <li class="hook"><b>Stop</b><span>hatched and signed</span></li>
+    <li class="hook born"><b>Creature born</b><span>species, rarity, skills</span></li></ol>`;
   // your real runs as the examples, never made-up run ids
   const real = latest.creatures.filter((c) => !c.bredBy && (c.durationMs || 0) <= 24 * 3600e3);
   const longest = real.slice().sort((a, b) => b.durationMs - a.durationMs)[0];
@@ -1512,24 +1557,37 @@ function sec_proof() {
   const examples = longest ? `<div class="hero2">${exCard(longest, 'Your longest real run')}${failed ? exCard(failed, 'A run that really failed') : `<div class="hcard"><span class="eyebrow">When a run fails</span><div class="flow">${eggSVG(77, '#e8615b', 60)}<span class="arrow">→</span>${creatureSVG(demoCreature('Example', 'cog', 'Rare', { status: 'sick', salt: 'bad', level: 1 }), 104)}</div><p class="note">None of your runs has ended in an error yet. One that does hatches sick with a scar, and heals once later runs of the same kind raise it. Drawn here as an example, not a real run.</p></div>`}</div>` : `<p class="note">Your own runs appear here as examples once the first one hatches.</p>`;
 
   // growth: the same creature at every stage (a pure function of its seed and level)
-  const stages = [[1, 'Hatchling', 'Lv 1-2 · still in its shell'], [3, 'Juvenile', 'Lv 3-4 · ornaments growing in'], [5, 'Adult', 'Lv 5-6 · fully grown'], [7, 'Elder', 'Lv 7-8 · white brows, whiskers, a warm glow'], [9, 'Elder', 'Lv 9-10 · and a laurel']];
+  const stages = [[1, 'Hatchling', 'Lv 1-2 · still in its shell'], [3, 'Juvenile', 'Lv 3-4 · ornaments growing in'], [5, 'Adult', 'Lv 5-6 · fully grown'], [7, 'Elder', 'Lv 7-8 · pale brows, whiskers, a warm glow'], [9, 'Exalted', 'Lv 9-10 · white brows and a golden laurel']];
   const ladder = stages.map(([lv, name, sub]) => `<div class="rung">${creatureSVG(demoCreature('Ladder', mk, 'Epic', { salt: 'L', level: lv, vo: { colorway: 'classic', expression: 'grin', accessory: 'bow' } }), 116)}<div class="rname">${name}</div><div class="rl">${sub}</div></div>`).join('');
 
   // one of a kind: the same species and rarity, different seeds
   const variety = `<div class="variety">${[0, 1, 2, 3, 4, 5, 6, 7].map((i) => { const c = demoCreature('variety-' + i, mk, 'Rare', { salt: 'v' + i, level: 6 }); const v = variantOf(c); return `<div class="vr">${creatureSVG(c, 92)}<span>${escapeXml(v ? v.full : '')}</span></div>`; }).join('')}</div>`;
 
-  const mine = latest.creatures.slice().sort((a, b) => (b.level || 1) - (a.level || 1) || b.rarity.index - a.rarity.index)[0];
+  // the most raised creature, with its OWN facts; your account totals sit in their own row below
+  const mine = latest.creatures.slice().sort((a, b) => (b.level || 1) - (a.level || 1) || (b.xp || 0) - (a.xp || 0) || byRarest(a, b))[0];
+  const fed = mine ? gainsOf(mine).slice(0, 3) : [];
+  const nextXp = mine && (mine.level || 1) < LEVEL_XP.length ? LEVEL_XP[mine.level || 1] - (mine.xp || 0) : 0;
+  const scars = latest.me ? latest.me.scars || 0 : 0;
   const survivor = mine ? `<div class="survivor">
-    <div style="text-align:center" class="link-c" data-id="${escapeXml(mine.id)}">${creatureVisual(mine, 180)}<div class="mono" style="color:var(--faint);font-size:11px;margin-top:6px">#${escapeXml(mine.att ? mine.att.fp : mine.id.slice(-8).toUpperCase())} ${mine.att ? '<span class="verified inline" title="signed">✓</span>' : ''}</div></div>
+    <div style="text-align:center" class="link-c" data-id="${escapeXml(mine.id)}">${creatureVisual(mine, 180)}<div class="mono" style="color:var(--faint);font-size:11px;margin-top:6px">${escapeXml(mine.att ? '#' + mine.att.fp : tagOf(mine))} ${mine.att ? '<span class="verified inline" title="signed">✓</span>' : ''}</div></div>
     <div><span class="eyebrow">Most raised creature</span><h2 style="font-size:22px;margin:4px 0 2px">${escapeXml(mine.fullName)}</h2>
-      <div class="note" style="margin:0 0 12px">Lv ${mine.level || 1} · ${escapeXml(levelLabel(mine))} · ${escapeXml(stageOf(mine).name)} · ${escapeXml(mine.speciesName)}</div>
+      <div class="note" style="margin:0 0 12px">${escapeXml(lvLine(mine))} · <span style="color:${mine.rarity.chip}">${mine.rarity.tier}</span> ${escapeXml(mine.speciesName)} · ${escapeXml((variantOf(mine) || { full: '' }).full)}</div>
       <div class="sv-stats">
+        <div class="stat"><b>${escapeXml(mine.bredBy ? 'bred' : mine.durationLabel || '—')}</b><span>its own run</span></div>
+        <div class="stat"><b>${fmtN(mine.xp || 0)}</b><span>xp raised${nextXp > 0 ? ` · ${fmtN(nextXp)} to Lv ${(mine.level || 1) + 1}` : ' · fully raised'}</span></div>
+        <div class="stat"><b>${mine.toolCalls != null ? fmtN(mine.toolCalls) : '—'}</b><span>tool calls in its run</span></div>
+        <div class="stat"><b>${shortDate(mine.bornAt)}</b><span>born ${ago(mine.bornAt)}</span></div>
+      </div>
+      ${fed.length ? `<div class="gains" style="margin-top:12px">${fed.map(([k, v2]) => `<span class="gain">+${fmtN(v2)} ${escapeXml(skillName(k))}</span>`).join('')}<span class="note" style="align-self:center">skills its run fed</span></div>` : ''}</div></div>
+    <div class="divider"></div>
+    <div class="acct"><span class="eyebrow">Your account, all creatures</span>
+      <div class="stats-row">
         <div class="stat"><b>${fmtN(latest.creatures.length)}</b><span>runs hatched</span></div>
         <div class="stat"><b>${latest.stats.machineHours}</b><span>machine hours</span></div>
         ${hasPower(latest.me) ? `<div class="stat"><b>${fmtN(latest.me.score)}</b><span>power</span></div>` : ''}
-        <div class="stat"><b>${latest.me ? fmtN(latest.me.scars) : 0}</b><span>scars collected</span></div>
+        <div class="stat"><b>${fmtN(scars)}</b><span>scars: runs that ended in an error</span></div>
       </div>
-      ${latest.me && latest.me.scars ? `<div class="scars-grid">${Array.from({ length: Math.min(12, latest.me.scars) }).map(() => '<div class="scar-dot">✕</div>').join('')}</div>` : '<p class="note">No scars yet: none of your runs has ended in an error.</p>'}</div></div>`
+      ${scars ? `<div class="scars-grid" title="one mark for each run that ended in an error (${fmtN(scars)})">${Array.from({ length: Math.min(12, scars) }).map(() => '<div class="scar-dot">✕</div>').join('')}${scars > 12 ? `<span class="note">+${fmtN(scars - 12)}</span>` : ''}<span class="note scar-key">one mark per failed run: each hatched sick, and later good runs of its kind raise it back</span></div>` : '<p class="note">No scars yet: none of your runs has ended in an error.</p>'}</div>`
     : `<p class="empty">Your most raised creature appears once your first one hatches.</p>`;
 
   const prov = `<div class="panel" style="margin-top:16px"><div class="p-head"><h2>Provenance</h2><span class="note">ed25519 attestation</span></div>
@@ -1620,10 +1678,13 @@ function sec_skills() {
         <div class="btns left"><button class="primary" id="skcard" data-skill="${top.key}">Save skill card</button></div></div>
     </div></div>`;
   const ms = (sk.milestones || []).slice(0, 14);
-  const miles = ms.length ? `<div class="panel" style="margin-top:16px"><div class="p-head"><h2>Milestones</h2><span class="note">replayed from your real runs</span></div><div class="miles">${ms.map((m) => `<div class="mile ${m.creatureId ? 'link-c' : ''}" ${m.creatureId ? `data-id="${escapeXml(m.creatureId)}"` : ''} style="--mc:${m.color || (m.kind === 'legendary' ? '#f5c451' : m.kind === 'mythic' ? '#ff7bd0' : m.kind === 'shiny' ? '#7bf0ff' : m.kind === 'streak' ? '#ff9a3d' : m.kind === 'total' ? '#b28dff' : '#67a8f0')}"><i></i><b>${escapeXml(m.text)}</b><span>${shortDate(m.at)}</span></div>`).join('')}</div></div>` : '';
-  const bandKey = `<div class="band-key">${['novice', 'apprentice', 'journeyman', 'adept', 'expert', 'master', 'grandmaster', 'virtuoso', 'legend', 'mythic', 'paragon', 'ascendant', 'transcendent', 'apex'].map((k, i) => `<span style="--c:${['#8b90a0', '#7ddc6a', '#2fd3b5', '#4aa8ff', '#7f7cff', '#c06cff', '#ff5fb4', '#ff6a5c', '#ff9a2e', '#ff8ad8', '#f5c451', '#ffe3a0', '#9ff3ff', '#ffffff'][i]}">${['1', '10', '20', '30', '40', '50', '60', '70', '80', '90', '99', '100', '110', '120'][i]}</span>`).join('')}</div>`;
+  const miles = ms.length ? `<div class="panel" style="margin-top:16px"><div class="p-head"><h2>Milestones</h2><span class="note">replayed from your real runs</span></div><div class="miles-wrap at-start"><button type="button" class="mscroll prev" data-ms="-1" aria-label="earlier milestones">‹</button><div class="miles" id="miles">${ms.map((m) => `<div class="mile ${m.creatureId ? 'link-c' : ''}" ${m.creatureId ? `data-id="${escapeXml(m.creatureId)}"` : ''} style="--mc:${m.color || (m.kind === 'legendary' ? '#f5c451' : m.kind === 'mythic' ? '#ff7bd0' : m.kind === 'shiny' ? '#7bf0ff' : m.kind === 'streak' ? '#ff9a3d' : m.kind === 'total' ? '#b28dff' : '#67a8f0')}"><i></i><b>${escapeXml(m.text)}</b><span>${shortDate(m.at)}</span></div>`).join('')}</div><button type="button" class="mscroll next" data-ms="1" aria-label="more milestones">›</button></div></div>` : '';
+  // the band ladder: every band by name and level, how many of your skills sit in it, your signature skill's band lit
+  const bands = sk.bands || [['novice', 'Novice', 1, '#8b90a0'], ['apprentice', 'Apprentice', 10, '#7ddc6a'], ['journeyman', 'Journeyman', 20, '#2fd3b5'], ['adept', 'Adept', 30, '#4aa8ff'], ['expert', 'Expert', 40, '#7f7cff'], ['master', 'Master', 50, '#c06cff'], ['grandmaster', 'Grandmaster', 60, '#ff5fb4'], ['virtuoso', 'Virtuoso', 70, '#ff6a5c'], ['legend', 'Legend', 80, '#ff9a2e'], ['mythic', 'Mythic', 90, '#ff8ad8'], ['paragon', 'Paragon', 99, '#f5c451'], ['ascendant', 'Ascendant', 100, '#ffe3a0'], ['transcendent', 'Transcendent', 110, '#9ff3ff'], ['apex', 'Apex', 120, '#ffffff']].map(([key, name, from, color]) => ({ key, name, from, color }));
+  const inBand = {}; live.forEach((s) => (inBand[s.band.key] = (inBand[s.band.key] || 0) + 1));
+  const bandKey = `<div class="band-ladder">${bands.map((b) => { const n = inBand[b.key] || 0, cur = b.key === top.band.key; return `<div class="bl ${n ? 'has' : ''} ${cur ? 'cur' : ''}" style="--c:${b.color}" title="${escapeXml(b.name)}: from Lv ${b.from}${n ? ` · ${plural(n, 'of your skills', 'of your skills')} here` : ''}"><i></i><b>${escapeXml(b.name)}</b><span>Lv ${b.from}${n ? ` · <em>${n}</em>` : ''}</span></div>`; }).join('')}</div>`;
   const groups = ['work', 'craft', 'habits', 'style'].map((g) => { const list = sk.list.filter((s) => s.group === g); if (!list.length) return ''; const lockedN = list.filter(isLocked).length; return `<div class="sk-group"><div class="sk-ghead"><h2>${GROUP_INFO[g][0]}</h2><span class="note">${GROUP_INFO[g][1]}${lockedN ? ` · ${lockedN} locked` : ''}</span></div><div class="skill-grid">${list.slice().sort((a, b) => (isLocked(a) ? 1 : 0) - (isLocked(b) ? 1 : 0)).map(skillCard).join('')}</div></div>`; }).join('');
-  return hero + miles + `<div class="band-legend"><span class="eyebrow">Bands</span>${bandKey}</div>` + groups;
+  return hero + miles + `<div class="panel band-legend"><div class="p-head"><h2>Bands</h2><span class="note">every skill climbs the same ladder · lit: bands your skills are in · ringed: your signature skill</span></div>${bandKey}</div>` + groups;
 }
 function openSkill(key) {
   const s = latest.skills && latest.skills.list.find((x) => x.key === key); if (!s) return;
@@ -1649,10 +1710,10 @@ let boardSamples = false;
 function recordsHTML() {
   const en = latest.engagement, r = en && en.records; if (!r) return '';
   const lr = r.longestRun ? findCreature(r.longestRun.creatureId) : null, ms = r.mostSubagents ? findCreature(r.mostSubagents.creatureId) : null;
-  const rarest = latest.creatures.reduce((b, c) => { if (c.bredBy) return b; const sc = c.rarity.index * 10 + (variantOf(c) && variantOf(c).shiny ? 5 : 0); return !b || sc > b.sc || (sc === b.sc && (c.durationMs || 0) > (b.c.durationMs || 0)) ? { c, sc } : b; }, null);
-  const rarestC = rarest && rarest.c;
+  // the same ranking the server uses for stats.rarest (variants.js)
+  const rarestC = (latest.stats && latest.stats.rarest && latest.stats.rarest.id && findCreature(latest.stats.rarest.id)) || latest.creatures.filter((c) => !c.bredBy).sort(byRarest)[0];
   const wkPct = r.bestWeek && r.bestWeek.points ? Math.min(1, (r.thisWeek || 0) / r.bestWeek.points) : 0;
-  const card = (label, val, sub, c) => `<div class="rec ${c ? 'link-c' : ''}" ${c ? `data-id="${escapeXml(c.id)}"` : ''}>${c ? creatureSVG(c, 54) : ''}<div><span class="eyebrow">${label}</span><b class="num">${val}</b><span>${sub}</span></div></div>`;
+  const card = (label, val, sub, c) => `<div class="rec ${c ? 'link-c' : ''}" ${c ? `data-id="${escapeXml(c.id)}"` : ''}>${c ? creatureSVG(c, 58, { crop: true }) : ''}<div><span class="eyebrow">${label}</span><b class="num">${val}</b><span>${sub}</span></div></div>`;
   return `<div class="panel tinted"><div class="p-head"><h2>Personal records</h2><span class="note">from your signed runs</span></div>
     <div class="wk-race"><div><span class="eyebrow" style="display:block">This week</span><b class="num big">${fmtN(r.thisWeek || 0)}</b><span class="of"> points</span></div><div class="wk-track"><i style="width:${(wkPct * 100).toFixed(1)}%"></i></div><div class="note">${r.bestWeek ? `Your best week: ${fmtN(r.bestWeek.points)} points, ${dayLabel(r.bestWeek.from)} to ${dayLabel(r.bestWeek.to)} (${plural(r.bestWeek.runs, 'run')}). ${wkPct >= 1 ? 'You are beating it.' : `${fmtN(r.bestWeek.points - (r.thisWeek || 0))} to go.`}` : ''}</div></div>
     <div class="recs">
@@ -1662,8 +1723,40 @@ function recordsHTML() {
       ${ms ? card('Most subagents', fmtN(r.mostSubagents.subagents), escapeXml(ms.fullName), ms) : ''}
       ${r.bestCleanStreak != null ? card('Clean streak', plural(r.bestCleanStreak, 'run'), 'no failed tool call') : ''}
       ${hasPower(latest.me) ? card('Power', fmtN(latest.me.score), 'all-time points, never resets') : ''}
-      ${rarestC ? card('Rarest hatch', (variantOf(rarestC) && variantOf(rarestC).shiny ? 'Shiny ' : '') + rarestC.rarity.tier, escapeXml(rarestC.fullName), rarestC) : ''}
+      ${rarestC ? card('Rarest hatch', (variantOf(rarestC) && variantOf(rarestC).shiny ? 'Shiny ' : '') + rarestC.rarity.tier, escapeXml(rarestC.fullName + ' · ' + ((variantOf(rarestC) || { name: '' }).name)), rarestC) : ''}
     </div></div>`;
+}
+// you vs your best week: cumulative points per local day (server: records.lastDays and bestWeek.days)
+function raceHTML() {
+  const en = latest.engagement, r = en && en.records; if (!r || !r.lastDays || !r.bestWeek || !r.bestWeek.days) return '';
+  const cum = (a) => a.reduce((o, v) => (o.push((o.length ? o[o.length - 1] : 0) + v), o), []);
+  const me = cum(r.lastDays), best = cum(r.bestWeek.days), mx = Math.max(1, me[6], best[6]);
+  const W = 560, H = 210, L = 46, Rr = 16, T = 16, B = 34, xw = (W - L - Rr) / 6, X = (i) => L + i * xw, Y = (v) => T + (H - T - B) * (1 - v / mx);
+  const line = (a) => a.map((v, i) => `${i ? 'L' : 'M'}${F(X(i))} ${F(Y(v))}`).join('');
+  const area = (a) => line(a) + `L${F(X(6))} ${F(Y(0))}L${F(X(0))} ${F(Y(0))}Z`;
+  const dn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], t = new Date().getDay();
+  const ticks = [0, 0.5, 1].map((k) => Math.round(mx * k));
+  const ahead = me[6] - best[6];
+  const svg = `<svg class="race" viewBox="0 0 ${W} ${H}" role="img" aria-label="points this week against your best week">
+    <defs><linearGradient id="race-me" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6ee7a5" stop-opacity=".35"/><stop offset="1" stop-color="#6ee7a5" stop-opacity="0"/></linearGradient></defs>
+    ${ticks.map((v) => `<path d="M${L} ${F(Y(v))}H${W - Rr}" stroke="#262935" stroke-width="1"/><text x="${L - 8}" y="${F(Y(v) + 4)}" text-anchor="end" class="rt">${fmtN(v)}</text>`).join('')}
+    <path d="${area(me)}" fill="url(#race-me)"/>
+    <path d="${line(best)}" fill="none" stroke="#f5c451" stroke-width="2.4" stroke-dasharray="6 5" stroke-linejoin="round"/>
+    <path d="${line(me)}" fill="none" stroke="#6ee7a5" stroke-width="3" stroke-linejoin="round"/>
+    ${me.map((v, i) => `<circle cx="${F(X(i))}" cy="${F(Y(v))}" r="${i === 6 ? 5 : 3}" fill="#6ee7a5"${i === 6 ? ' stroke="#0b0c11" stroke-width="2"' : ''}/>`).join('')}
+    <circle cx="${F(X(6))}" cy="${F(Y(best[6]))}" r="4" fill="#f5c451"/>
+    ${me.map((_, i) => `<text x="${F(X(i))}" y="${H - 12}" text-anchor="middle" class="rt${i === 6 ? ' now' : ''}">${i === 6 ? 'Today' : dn[(t - 6 + i + 14) % 7]}</text>`).join('')}
+  </svg>`;
+  return `<div class="panel race-p"><div class="p-head"><h2>You vs your best week</h2><span class="note">points per day, added up</span></div>
+    <div class="race-key"><span><i style="background:#6ee7a5"></i>Last 7 days · <b class="num">${fmtN(me[6])}</b></span><span><i class="dash"></i>Best week · <b class="num">${fmtN(best[6])}</b> <em>${dayLabel(r.bestWeek.from)} to ${dayLabel(r.bestWeek.to)}</em></span></div>
+    ${svg}<p class="note">${ahead >= 0 ? `You are ${fmtN(ahead)} points ahead of your best week.` : `${fmtN(-ahead)} points behind your best week, with today still running.`}</p></div>`;
+}
+// this week's podium: your three rarest hatches of the last 7 days
+function podiumHTML() {
+  const wk = latest.creatures.filter((c) => !c.bredBy && c.bornAt >= Date.now() - 7 * 86400000).sort(byRarest).slice(0, 3);
+  if (!wk.length) return `<div class="panel podium-p"><div class="p-head"><h2>This week's podium</h2></div><p class="note">Nothing hatched in the last 7 days. Your next run takes first place.</p></div>`;
+  const order = [wk[1], wk[0], wk[2]], place = [2, 1, 3];
+  return `<div class="panel podium-p"><div class="p-head"><h2>This week's podium</h2><span class="note">your rarest hatches of the last 7 days</span></div><div class="podium">${order.map((c, i) => c ? `<div class="pod p${place[i]} link-c" data-id="${escapeXml(c.id)}" style="--tier:${c.rarity.chip}"><div class="pod-art">${creatureSVG(c, place[i] === 1 ? 150 : 112, { crop: true, live: place[i] === 1 })}</div><b>${escapeXml(c.fullName)}</b><span><span style="color:${c.rarity.chip}">${(variantOf(c) && variantOf(c).shiny ? 'Shiny ' : '') + c.rarity.tier}</span> · ${escapeXml(c.durationLabel || '')}</span><div class="step"><em>${place[i]}</em></div></div>` : '<div class="pod empty"></div>').join('')}</div></div>`;
 }
 function sec_board() {
   if (!boardData.length) return `<p class="empty">No operators with creatures yet.</p>`;
@@ -1675,8 +1768,10 @@ function sec_board() {
     <div class="surv">${hasPower(r) ? fmtN(r.score || 0) : '—'}<span>power</span></div>
     <div class="score" style="color:${r.you ? 'var(--green)' : 'var(--ink)'}">${hasPower(r) ? fmtN(r.week) : '—'}<span>this week</span></div></div>`).join('');
   const note = boardSamples ? 'Rows marked sample are generated operators, shown because the server runs with --samples. They are not real people.' : real <= 1 ? 'Only operators on this server appear here. Right now that is just you, so the race is against your own records.' : 'Every row is an operator on this server.';
-  if (real <= 1 && !boardSamples) return lead + recordsHTML() + `<div class="board" style="margin-top:16px">${rows}</div><p class="note">${note}</p>`;
-  return lead + `<div class="board">${rows}</div><p class="note">${note}</p><div style="margin-top:16px">${recordsHTML()}</div>`;
+  const week = `<div class="grid cols-2 race-row">${raceHTML() || ''}${podiumHTML()}</div>`;
+  // alone on this server: the race is against your own best week, no lonely one-row table
+  if (real <= 1 && !boardSamples) return lead + week + `<div style="margin-top:16px">${recordsHTML()}</div><p class="note">${note}</p>`;
+  return lead + `<div class="board">${rows}</div><p class="note">${note}</p>${week}<div style="margin-top:16px">${recordsHTML()}</div>`;
 }
 
 // ---- cross-feed breeding (a panel inside the Dex) ----
@@ -1713,25 +1808,36 @@ function sec_antechamber() {
   const hour = new Date().getHours();
   const part = hour < 5 ? 'These are the deep hours. Only the devoted are still running.' : hour < 12 ? 'Good morning. The machines are just waking.' : hour < 18 ? 'Good afternoon. A steady day of work behind you.' : 'Good evening. The fire is lit and the seats are warm.';
   const top = latest.me && latest.me.topSpecies && latest.me.topSpecies !== '—' ? `Mostly ${latest.me.topSpecies.toLowerCase()} work, I see.` : '';
-  const line = open ? `${part} You have ${fmtN(latest.creatures.length)} in your menagerie. ${top} Your agents are running, so the door is open. Sit, the usual seat by the fire.` : `${part} But your agents are still. The door stays shut until the machines are thinking again. Come back mid-run.`;
+  const line = open ? `${part} ${latest.eggs.length === 1 ? 'One egg is' : plural(latest.eggs.length, 'egg') + ' are'} warming by the fire. ${top} Sit, the usual seat.` : `${part} But your agents are still. The door stays shut until the machines are thinking again. Come back mid-run.`;
   const night = latest.creatures.filter((c) => (c.traits || []).includes('Nightshift'));
   const owl = latest.skills && latest.skills.list.find((s) => s.key === 'nightowl');
-  const lastNight = night[0];
-  return `<div class="section-lead">Not a place to be productive. A candlelit room that opens only while your agents are really running, where a concierge who knows your day receives you.</div>
-  <div class="grid cols-2">
-    <div class="lounge ${open ? '' : 'closed'}">
+  // tonight's Nightshift hatchlings (the last 24 hours), or else the most recent night's, honestly labelled
+  const recentNight = night.filter((c) => c.bornAt >= Date.now() - 86400000);
+  const lastNightKey = night[0] ? new Date(night[0].bornAt).toDateString() : '';
+  const guests = (recentNight.length ? recentNight : night.filter((c) => new Date(c.bornAt).toDateString() === lastNightKey)).slice(0, 6);
+  const guestLabel = recentNight.length ? 'Tonight’s Nightshift' : guests.length ? `Nightshift from ${shortDate(guests[0].bornAt)}` : '';
+  // the scene: Barnaby by the fire, the running eggs warming around him, the night's creatures wandering the floor
+  const eggs = latest.eggs.slice(0, 6).map((e, i) => { const side = i % 2 ? 1 : -1, k = Math.floor(i / 2); return `<div class="ls-egg" style="left:${50 + side * (15 + k * 9)}%;--d:-${(hashString(String(e.id)) % 2000) / 1000}s" title="${escapeXml((DOMAIN_LABEL[e.domainKey] || 'General') + ' work · running')}">${eggSVG(hashString(String(e.id)), (ART_PAL[e.domainKey] || ART_PAL.wisp).glow, 58)}<span>${escapeXml(DOMAIN_LABEL[e.domainKey] || 'General')} · <b class="timer-lite" data-start="${Number(e.startedAt) || 0}">${fmtClock(Date.now() - Number(e.startedAt))}</b></span></div>`; }).join('');
+  // each guest keeps to its own lane on one side of Barnaby, so nobody walks through him or a neighbour
+  const walkers = guests.map((c, i) => { const r = mulberry32(hashString('walk:' + c.id)), k = Math.floor(i / 2), right = i % 2 === 1, a = 2 + k * 11 + r() * 3, b = a + 6 + r() * 5; const x0 = right ? 92 - b : a, x1 = right ? 92 - a : b; return `<div class="ls-walk w${i} ${open ? '' : 'asleep'} link-c" data-id="${escapeXml(c.id)}" style="--x0:${F(x0)}%;--x1:${F(x1)}%;--dur:${F(11 + r() * 9)}s;--dl:-${F(r() * 10)}s" title="${escapeXml(c.fullName)}"><div class="ls-flip">${creatureSVG(c, 74, { crop: true })}</div></div>`; }).join('');
+  const scene = `<div class="lounge-scene ${open ? '' : 'closed'}">
+      <div class="ls-glow"></div><div class="ls-window"></div><div class="ls-sconce l"></div><div class="ls-sconce r"></div><div class="ls-fire"><i></i><i></i><i></i></div>
       <div class="doorstate">${open ? '● the door is open' : '○ the door is closed'}</div>
-      ${creatureSVG(conc, 168, { live: true })}
-      <div class="concierge-name">Barnaby, the Concierge</div>
-      <div class="concierge-line">"${escapeXml(line.replace(/\s+/g, ' ').trim())}"</div>
-    </div>
-    <div>
+      <div class="ls-bubble">"${escapeXml(line.replace(/\s+/g, ' ').trim())}"</div>
+      <div class="ls-floor"></div>
+      <div class="ls-host">${creatureSVG(conc, 210, { live: true })}<div class="concierge-name">Barnaby, the Concierge</div></div>
+      ${eggs}${walkers}
+      ${guestLabel ? `<div class="ls-caption">${escapeXml(guestLabel)} · ${plural(guests.length, 'guest')} on the floor</div>` : ''}
+    </div>`;
+  return `<div class="section-lead">Not a place to be productive. A candlelit room that opens only while your agents are really running. Barnaby keeps your running eggs warm, and the creatures your night runs hatched wander in.</div>
+  ${scene}
+  <div class="grid cols-2" style="margin-top:16px">
       <div class="panel"><div class="p-head"><h2>Right now</h2></div>
-        <div class="net"><div class="n"><b>${latest.eggs.length}</b><span>${latest.eggs.length === 1 ? 'agent' : 'agents'} running</span></div><div class="n"><b>${latest.me && latest.me.week != null ? fmtN(latest.me.week) : '—'}</b><span>your points this week</span></div></div></div>
-      <div class="panel" style="margin-top:16px"><div class="p-head"><h2>After hours</h2><span class="note">runs that finished between midnight and 5am</span></div>
+        <div class="net"><div class="n"><b>${latest.eggs.length}</b><span>${latest.eggs.length === 1 ? 'agent' : 'agents'} running</span></div><div class="n"><b>${latest.me && latest.me.week != null ? fmtN(latest.me.week) : '—'}</b><span>your points this week</span></div></div>
+        ${latest.eggs.length ? `<div class="eggs" style="margin-top:12px">${latest.eggs.slice(0, 2).map(eggBox).join('')}</div>` : ''}</div>
+      <div class="panel"><div class="p-head"><h2>After hours</h2><span class="note">runs that finished between midnight and 5am</span></div>
         <div class="net"><div class="n"><b>${fmtN(night.length)}</b><span>Nightshift creatures</span></div>${owl ? `<div class="n"><b>Lv ${owl.level}</b><span>Night Owl · ${escapeXml(owl.title)}</span></div>` : ''}</div>
-        ${lastNight ? `<div class="contrib" data-id="${escapeXml(lastNight.id)}" style="margin-top:12px">${creatureSVG(lastNight, 44)}<div><b>${escapeXml(lastNight.fullName)}</b><span>latest night run · ${shortDate(lastNight.bornAt)}</span></div></div>` : '<p class="note">No night runs yet.</p>'}</div>
-    </div>
+        ${night[0] ? `<div class="contrib" data-id="${escapeXml(night[0].id)}" style="margin-top:12px">${creatureSVG(night[0], 44, { crop: true })}<div><b>${escapeXml(night[0].fullName)}</b><span>latest night run · ${shortDate(night[0].bornAt)}</span></div></div>` : '<p class="note">No night runs yet. Run an agent after midnight and its creature wanders in here.</p>'}</div>
   </div>`;
 }
 
@@ -1782,8 +1888,15 @@ function renderActive() {
   const sv = stage.querySelector('#savenew'); if (sv) sv.onclick = () => downloadCard(latest.creatures[0], 'portrait');
   const gs = stage.querySelector('#goalsel'); if (gs) gs.onchange = async () => { const [type, target] = gs.value.split(':'); try { await fetch('/api/me', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ goal: { type, target: Number(target) } }) }); } catch {} poll(true); };
   const skc = stage.querySelector('#skcard'); if (skc) skc.onclick = () => downloadSkillCard(latest.skills.list.find((s) => s.key === skc.dataset.skill));
-  const recent = stage.querySelector('#recent'); if (recent) reconcile(recent, latest.creatures.slice(0, 10), (c) => tileHTML(c), tileKey);
+  const recent = stage.querySelector('#recent'); if (recent) reconcile(recent, stripList(), (c) => tileHTML(c), tileKey);
+  stage.querySelectorAll('[data-strip]').forEach((b) => b.addEventListener('click', () => { homeStrip = b.dataset.strip; try { localStorage.setItem('pol_strip', homeStrip); } catch {} renderActive(); }));
   if (current === 'collection') bindCollection(stage);
+  const ml = stage.querySelector('#miles');
+  if (ml) {
+    const wrap = ml.parentElement, upd = () => { wrap.classList.toggle('at-start', ml.scrollLeft < 4); wrap.classList.toggle('at-end', ml.scrollLeft + ml.clientWidth >= ml.scrollWidth - 4); };
+    ml.addEventListener('scroll', upd, { passive: true }); upd();
+    wrap.querySelectorAll('[data-ms]').forEach((b) => b.addEventListener('click', () => ml.scrollBy({ left: Number(b.dataset.ms) * ml.clientWidth * 0.8, behavior: reduceMotion() ? 'auto' : 'smooth' })));
+  }
   hydrateArt(stage);
   // total level counts up only after a real level-up seen in this tab
   const tl = stage.querySelector('#tlnum');
@@ -1798,9 +1911,9 @@ function sectionSig() {
   switch (current) {
     case 'home': return [latest.creatures.length, top, latest.eggs.map((e) => e.id + ':' + (e.subagents || 0)).join(), en && en.goal ? en.goal.progress + ':' + en.goal.target + ':' + en.goal.auto : '', en ? en.streak : '', lv, latest.me ? latest.me.score : ''].join('|');
     case 'skills': return [lv, sk ? sk.totalXp : '', sk ? (sk.milestones || []).length : ''].join('|');
-    case 'board': return [boardData.map((r) => r.handle + r.week + ':' + r.score).join(), en && en.records ? en.records.thisWeek : ''].join('|');
+    case 'board': return [boardData.map((r) => r.handle + r.week + ':' + r.score).join(), en && en.records ? en.records.thisWeek + ':' + (en.records.lastDays || []).join(',') : '', latest.creatures.length].join('|');
     case 'bestiary': return [latest.creatures.length, top, bestiaryData ? bestiaryData.network.breeds : 0, dexOpen].join('|');
-    case 'lounge': return [latest.eggs.length, latest.me ? latest.me.week : ''].join('|');
+    case 'lounge': return [latest.eggs.map((e) => e.id).join(), latest.me ? latest.me.week : '', latest.creatures.length].join('|');
     case 'proof': return [latest.creatures.length, pubInfo ? 1 : 0, latest.me ? latest.me.score : ''].join('|');
     default: return String(latest.rev);
   }
@@ -1814,7 +1927,7 @@ function countUp(el, from, to) {
 // art slots are filled only when they come near the viewport (and the markup is cached by look)
 let artObs = null;
 function hydrateArt(root) {
-  const fill = (el) => { if (!el.isConnected || !el.dataset.art) return; const c = findCreature(el.dataset.art); el.removeAttribute('data-art'); if (c) el.outerHTML = creatureVisual(c, 128); };
+  const fill = (el) => { if (!el.isConnected || !el.dataset.art) return; const c = findCreature(el.dataset.art); el.removeAttribute('data-art'); if (c) el.outerHTML = creatureVisual(c, 128, { crop: true }); };
   const slots = root.querySelectorAll('.art-slot[data-art]');
   if (!slots.length) return;
   if (typeof IntersectionObserver === 'undefined') { slots.forEach(fill); return; }
@@ -1891,7 +2004,7 @@ async function openProfile(handle) {
   document.getElementById('close').onclick = closeModal;
   const cp = document.getElementById('copy'); cp.onclick = () => { try { navigator.clipboard.writeText(link); } catch {} cp.textContent = 'Copied'; setTimeout(() => (cp.textContent = 'Copy link'), 1400); };
   const ed = document.getElementById('edit'); if (ed) ed.onclick = editIdentity;
-  document.getElementById('modal-card').querySelectorAll('.tile[data-id]').forEach((t) => t.addEventListener('click', () => openModal((p.creatures || []).find((c) => c.id === t.dataset.id))));
+  document.getElementById('modal-card').querySelectorAll('.tile[data-id]').forEach((t) => bindCreatureEl(t, (id) => (p.creatures || []).find((c) => c.id === id)));
 }
 async function editIdentity() {
   const handle = prompt('Your handle (letters, numbers, underscore):', (latest.me && latest.me.handle) || ''); if (handle == null) return;
@@ -1906,7 +2019,7 @@ function closeModal() { const m = document.getElementById('modal'); m.hidden = t
 function openModal(c) {
   if (!c) return;
   const gains = gainsOf(c).slice(0, 4), v = variantOf(c), st = stageOf(c);
-  const rows = [['species', c.speciesName], ['rarity', c.rarity.tier], ['variant', v ? v.full + (v.shiny ? ' (Shiny)' : '') : '—'], ['face', v ? `${v.expression.name} · ${v.eyes.name} eyes` : '—'], ['level', `Lv ${c.level || 1} · ${levelLabel(c)} · ${st.name}`], ['forged from', c.bredBy ? 'cross-feed · ' + c.domain + ' work' : originLine(c).replace(/^grew from /, '')], ['traits', c.traits && c.traits.length ? c.traits.join(', ') : 'none'], ['status', c.status === 'healthy' ? 'healthy' : c.status === 'healed' ? 'healed survivor' : 'sick · needs care'], [c.bredBy ? 'bred by' : 'born', c.bredBy ? '@' + c.bredBy.join(' + @') : new Date(c.bornAt).toLocaleString()]].map(([k, val]) => `<div class="row"><span>${k}</span><span>${escapeXml(val)}</span></div>`).join('');
+  const rows = [['species', c.speciesName], ['rarity', c.rarity.tier], ['variant', v ? v.full + (v.shiny ? ' (Shiny)' : '') : '—'], ['face', v ? `${v.expression.name} · ${v.eyes.name} eyes` : '—'], ['level', lvLine(c)], ['serial', tagOf(c)], ['forged from', c.bredBy ? 'cross-feed · ' + c.domain + ' work' : originLine(c).replace(/^grew from /, '')], ['traits', c.traits && c.traits.length ? c.traits.join(', ') : 'none'], ['status', c.status === 'healthy' ? 'healthy' : c.status === 'healed' ? 'healed survivor' : 'sick · needs care'], [c.bredBy ? 'bred by' : 'born', c.bredBy ? '@' + c.bredBy.join(' + @') : new Date(c.bornAt).toLocaleString()]].map(([k, val]) => `<div class="row"><span>${k}</span><span>${escapeXml(val)}</span></div>`).join('');
   const att = `<div class="att"><div class="att-row"><span>attestation</span><span class="mono">${c.att ? escapeXml(c.att.fp) + ' · ed25519' : 'unsigned'}</span></div><button id="verify" class="ghost">Verify signature</button><div id="vres" class="vres"></div></div>`;
   document.getElementById('modal-card').classList.remove('wide');
   document.getElementById('modal-card').innerHTML = `<div class="m-art t-${c.rarity.tier.toLowerCase()}${v && v.shiny ? ' is-shiny' : ''}" style="--tier:${c.rarity.chip}">${creatureVisual(c, 220, { live: true })}</div><span class="chip" style="color:${c.rarity.chip}">${c.rarity.tier}</span>${v && v.shiny ? ' <span class="shinychip">✦ Shiny</span>' : ''}<h3>${escapeXml(c.fullName)}</h3><div class="m-var">${escapeXml(v ? v.full : c.speciesName)}</div>${gains.length ? `<div class="gains center">${gains.map(([k, val]) => `<span class="gain">+${fmtN(val)} ${escapeXml(skillName(k))}</span>`).join('')}</div>` : ''}<div class="rows">${rows}</div>${att}
@@ -1948,6 +2061,9 @@ function confettiSVG(c, shiny) {
 function revealMarkup(c, more, extra) {
   const T = c.rarity.tier, chip = c.rarity.chip, glow = (ART_PAL[c.speciesKey] || ART_PAL.wisp).glow, v = variantOf(c), st = stageOf(c);
   const gains = gainsOf(c).slice(0, 4);
+  const brag = T === 'Legendary' || T === 'Mythic' || (v && v.shiny);
+  let share = '';
+  if (brag) { try { const svg = buildCardSVG(c, 'portrait'), odds = oddsOf(c); share = `<div class="rv-share"><img alt="share card preview" width="120" height="150" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}"/><div><b>${v && v.shiny ? 'A Shiny. Worth showing off.' : T === 'Mythic' ? 'A Mythic. Worth showing off.' : 'A Legendary. Worth showing off.'}</b>${odds.length ? `<span>${odds.map(escapeXml).join(' · ')}</span>` : ''}<button class="primary small" data-rv="save">${SAVE_IC} Save the card</button></div></div>`; } catch { share = ''; } }
   const sig = [c.durationLabel ? `${c.durationLabel} run` : '', c.toolCalls ? plural(c.toolCalls, 'tool call') : '', c.subagents ? plural(c.subagents, 'subagent') : ''].filter(Boolean);
   const rays = T === 'Legendary' || T === 'Mythic' || (v && v.shiny) ? `<div class="rv-rays ${T === 'Mythic' || (v && v.shiny) ? 'myth' : ''}"></div>` : '';
   let grew = '';
@@ -1966,7 +2082,8 @@ function revealMarkup(c, more, extra) {
       ${gains.length ? `<div class="gains center rv-gains">${gains.map(([k, val]) => `<span class="gain">+${fmtN(val)} ${escapeXml(skillName(k))}</span>`).join('')}</div>` : ''}
       ${grew}
       ${more ? `<div class="note rv-more">and ${plural(more, 'more creature')} hatched with it</div>` : ''}
-      <div class="btns rv-btns"><button class="primary" data-rv="save">Save card</button><button data-rv="close">Close</button></div>
+      ${share}
+      <div class="btns rv-btns"><button class="primary" data-rv="save">${SAVE_IC} Save share card</button><button data-rv="close">Close</button></div>
     </div>`;
 }
 let revealQ = [], revealing = null, revealTimers = [];
@@ -2035,6 +2152,20 @@ function flushToasts() {
 }
 
 // ---- shareable cards: one SVG, rasterized at 2x ----
+// the odds behind a creature, all real: variants.js odds, and where its run ranks among your own runs
+function oddsOf(c) {
+  const v = variantOf(c), out = [];
+  if (v && v.shiny) out.push(`1 in ${PV ? PV.SHINY_ODDS : 64} hatch Shiny`);
+  if (c.rarity.tier === 'Legendary' && v && !v.shiny && v.material === 'holo') out.push('Holo: 4 in 10 Legendaries');
+  if (c.rarity.tier === 'Legendary' && v && !v.shiny && v.material === 'gold') out.push('Gold Chrome: 6 in 10 Legendaries');
+  const mine = latest.creatures.filter((x) => !x.bredBy && (x.durationMs || 0) > 0 && (x.durationMs || 0) <= 24 * 3600e3);
+  if (!c.bredBy && mine.some((x) => x.id === c.id) && mine.length >= 10) {
+    const longer = mine.filter((x) => x.durationMs > c.durationMs).length, pct = Math.max(1, Math.ceil(((longer + 1) / mine.length) * 100));
+    if (pct <= 50) out.push(`Top ${pct}% of ${fmtN(mine.length)} runs by length`);
+  }
+  if (!out.length && !c.bredBy) { const same = latest.creatures.filter((x) => !x.bredBy && x.rarity.tier === c.rarity.tier).length; if (same) out.push(`1 of ${fmtN(same)} ${c.rarity.tier} hatches`); }
+  return out.slice(0, 2);
+}
 const CARD_PRESETS = { portrait: [1080, 1350], og: [1200, 630] };
 // a real holo foil: a fine diamond lattice and starbursts in rainbow ink, a sweeping sheen, all clipped to the card
 function cardHolo(c, W, H, x, y, w, h) {
@@ -2068,25 +2199,28 @@ function buildCardSVG(c, preset) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs>${PL_DEFS}${cardFrame(c, W, H)}${holo.defs}<radialGradient id="bgg" cx="30%" cy="45%" r="80%"><stop offset="0" stop-color="#1e2436"/><stop offset="1" stop-color="#0b0d13"/></radialGradient><radialGradient id="spot" cx="50%" cy="55%" r="55%"><stop offset="0" stop-color="${chip}" stop-opacity=".42"/><stop offset="1" stop-color="${chip}" stop-opacity="0"/></radialGradient><clipPath id="art-clip"><rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" rx="26"/></clipPath></defs>
       <rect width="${W}" height="${H}" rx="34" fill="url(#bgg)"/><rect x="8" y="8" width="${W - 16}" height="${H - 16}" rx="28" fill="none" stroke="url(#frame-g)" stroke-width="6"/>
       <g clip-path="url(#art-clip)"><rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" fill="#10131c"/><circle cx="${ax + aw / 2}" cy="${ay + ah * 0.55}" r="${aw * 0.62}" fill="url(#spot)"/>${holo.layer}<g transform="translate(${ax + 30} ${ay + 18}) scale(2.2)">${inner}</g></g><rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" rx="26" fill="none" stroke="url(#frame-g)" stroke-width="3" opacity=".8"/>
-      ${TX(590, 110, 20, '#8d96b3', 'PROOF OF LIFE', { a: 'start', ls: 6, w: 700 })}${TX(590, 168, 30, chip, tierLabel, { a: 'start', ls: 6, w: 800 })}
+      ${TX(590, 110, 20, '#8d96b3', 'PROOF OF LIFE  ' + tagOf(c), { a: 'start', ls: 6, w: 700 })}${TX(590, 168, 30, chip, tierLabel, { a: 'start', ls: 6, w: 800 })}
       ${TX(590, 238, Math.min(54, Math.floor(1060 / Math.max(10, c.fullName.length))), '#f4f2ff', c.fullName, { a: 'start', serif: 1 })}
-      ${TX(590, 286, 24, '#d8dcea', `${v ? v.full : c.speciesName}`, { a: 'start', w: 600 })}${TX(590, 324, 22, '#9aa3bf', `${c.speciesName} · ${st.name} · Lv ${c.level || 1}`, { a: 'start' })}
+      ${TX(590, 286, 24, '#d8dcea', `${v ? v.full : c.speciesName}`, { a: 'start', w: 600 })}${TX(590, 324, 22, '#9aa3bf', `${c.speciesName} · Lv ${c.level || 1} · ${st.name}`, { a: 'start' })}
       ${TX(590, 372, 22, '#9aa3bf', c.bredBy ? `bred from ${c.domain || 'shared'} work` : `forged from ${aAn(c.durationLabel)} ${c.durationLabel} agent run${c.toolCalls ? ' · ' + plural(c.toolCalls, 'tool call') : ''}`, { a: 'start' })}
       ${g ? `<rect x="590" y="404" width="${Math.min(520, 40 + (fmtN(g[1]).length + skillName(g[0]).length + 2) * 15)}" height="48" rx="24" fill="${chip}" fill-opacity=".14" stroke="${chip}" stroke-opacity=".55"/>` + TX(614, 436, 22, '#f4f2ff', `+${fmtN(g[1])} ${skillName(g[0])}`, { a: 'start', w: 700 }) : ''}
+      ${oddsOf(c).length ? TX(590, 492, 21, chip, oddsOf(c).join('  ·  '), { a: 'start', w: 700 }) : ''}
       ${TX(590, 534, 19, '#7e88a6', verify, { a: 'start', mono: 1 })}${TX(590, 566, 19, '#646d88', `${handle} · minted from real machine hours`, { a: 'start' })}</svg>`;
   }
   // portrait: a trading card. Frame, a foil art window, a name plate, four real stats, a signed footer.
   const ax = 70, ay = 150, aw = W - 140, ah = 770;
   const holo = cardHolo(c, W, H, ax, ay, aw, ah);
   const stat = (x, label, val) => `<rect x="${x}" y="1068" width="220" height="104" rx="18" fill="#ffffff" fill-opacity=".04" stroke="#ffffff" stroke-opacity=".1"/>${TX(x + 110, 1108, 18, '#8d96b3', label, { ls: 3, w: 700 })}${TX(x + 110, 1150, 34, '#f4f2ff', val, { w: 700 })}`;
+  const odds = oddsOf(c), oddsTxt = odds.join('  ·  '), oddsW = Math.min(aw - 40, 60 + oddsTxt.length * 12.4);
   const stats = [['RUN', c.bredBy ? '—' : c.durationLabel || '—'], ['TOOLS', c.toolCalls != null ? fmtN(c.toolCalls) : '—'], ['LEVEL', `${c.level || 1}`], ['SUBAGENTS', fmtN(c.subagents || 0)]];
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs>${PL_DEFS}${cardFrame(c, W, H)}${holo.defs}<radialGradient id="bgg" cx="50%" cy="30%" r="85%"><stop offset="0" stop-color="#1e2436"/><stop offset="1" stop-color="#0a0c12"/></radialGradient><radialGradient id="spot" cx="50%" cy="58%" r="58%"><stop offset="0" stop-color="${chip}" stop-opacity=".45"/><stop offset=".6" stop-color="${chip}" stop-opacity=".1"/><stop offset="1" stop-color="${chip}" stop-opacity="0"/></radialGradient><clipPath id="art-clip"><rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" rx="34"/></clipPath></defs>
     <rect width="${W}" height="${H}" rx="44" fill="url(#bgg)"/>
     <rect x="12" y="12" width="${W - 24}" height="${H - 24}" rx="36" fill="none" stroke="url(#frame-g)" stroke-width="10"/><rect x="30" y="30" width="${W - 60}" height="${H - 60}" rx="26" fill="none" stroke="url(#frame-g)" stroke-width="2" opacity=".55"/>
-    ${TX(80, 106, 22, '#9aa3bf', 'PROOF OF LIFE', { a: 'start', ls: 7, w: 700 })}
+    ${TX(80, 106, 22, '#9aa3bf', 'PROOF OF LIFE  ' + tagOf(c), { a: 'start', ls: 7, w: 700 })}
     <rect x="${W - 80 - (tierLabel.length * 19 + 56)}" y="70" width="${tierLabel.length * 19 + 56}" height="50" rx="25" fill="${chip}" fill-opacity=".12" stroke="url(#frame-g)" stroke-width="3"/>${TX(W - 80 - (tierLabel.length * 19 + 56) / 2, 104, 22, chip, tierLabel, { ls: 4, w: 800 })}
     <g clip-path="url(#art-clip)"><rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" fill="#0f121b"/><circle cx="${W / 2}" cy="${ay + ah * 0.56}" r="${aw * 0.62}" fill="url(#spot)"/>${holo.layer}<g transform="translate(${W / 2 - 400} ${ay - 30}) scale(4)">${inner}</g></g>
     <rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" rx="34" fill="none" stroke="url(#frame-g)" stroke-width="4"/>
+    ${odds.length ? `<rect x="${W / 2 - oddsW / 2}" y="${ay + ah - 78}" width="${oddsW}" height="52" rx="26" fill="#07080d" fill-opacity=".72" stroke="url(#frame-g)" stroke-width="2"/>` + TX(W / 2, ay + ah - 44, 23, '#f4f2ff', oddsTxt, { w: 700, ls: 1 }) : ''}
     ${TX(W / 2, 990, Math.min(64, Math.floor(1700 / Math.max(10, c.fullName.length))), '#f6f4ff', c.fullName, { serif: 1 })}
     ${TX(W / 2, 1036, 26, chip, `${v ? v.full : c.speciesName} · ${c.speciesName} · ${st.name}`, { w: 600 })}
     ${stat(80, stats[0][0], stats[0][1])}${stat(320, stats[1][0], stats[1][1])}${stat(560, stats[2][0], stats[2][1])}${stat(800, stats[3][0], stats[3][1])}
@@ -2161,6 +2295,7 @@ async function poll(force) {
   } catch (e) { server.old = true; showBanner(); }
 }
 function tickTimers() {
+  document.querySelectorAll('.timer-lite[data-start]').forEach((t) => { t.textContent = fmtClock(Date.now() - Number(t.dataset.start)); });
   document.querySelectorAll('.egg[data-start]').forEach((el) => {
     const ms = Date.now() - Number(el.dataset.start), subs = Number(el.dataset.subs || 0), t = el.querySelector('.timer');
     if (t) t.textContent = fmtClock(ms);

@@ -59,8 +59,17 @@ const RARITY = [
   { tier: 'Legendary', chip: '#f5b93b', maxMs: Infinity },
 ];
 
-const NAME_HEAD = ['Bri', 'Quo', 'Nix', 'Zub', 'Mel', 'Fen', 'Tup', 'Vor', 'Wob', 'Squ', 'Grum', 'Pil', 'Dax', 'Yel', 'Muk', 'Ozz'];
-const NAME_TAIL = ['bble', 'xel', 'tik', 'mo', 'zul', 'nub', 'rix', 'wop', 'dle', 'zzt', 'gg', 'lisk', 'per', 'quat', 'omph'];
+// Names are stored on each creature when it hatches (and are not part of the
+// signed message), so widening these pools only changes creatures hatched from
+// now on: 46 heads x 42 tails, and about 1 in 3 gets a middle syllable, so a
+// collection of thousands rarely repeats a name.
+const NAME_HEAD = ['Bri', 'Quo', 'Nix', 'Zub', 'Mel', 'Fen', 'Tup', 'Vor', 'Wob', 'Squ', 'Grum', 'Pil', 'Dax', 'Yel', 'Muk', 'Ozz',
+  'Bix', 'Cram', 'Dob', 'Flin', 'Gax', 'Hob', 'Jib', 'Kip', 'Lum', 'Mox', 'Nub', 'Pog', 'Rook', 'Sni', 'Tiv', 'Ulo',
+  'Vex', 'Wib', 'Yop', 'Zat', 'Blu', 'Clo', 'Dri', 'Fiz', 'Glim', 'Huz', 'Ib', 'Jot', 'Krel', 'Plo'];
+const NAME_MID = ['a', 'o', 'u', 'el', 'ar', 'im', 'op', 'ub', 'en', 'ag', 'oo', 'az', 'eb', 'ot'];
+const NAME_TAIL = ['bble', 'xel', 'tik', 'mo', 'zul', 'nub', 'rix', 'wop', 'dle', 'zzt', 'gg', 'lisk', 'per', 'quat', 'omph',
+  'bit', 'dorf', 'fizz', 'gle', 'kin', 'lo', 'mop', 'nik', 'pip', 'rog', 'sy', 'tch', 'vin', 'wick', 'zle',
+  'bo', 'chi', 'dut', 'fle', 'grub', 'ka', 'let', 'mash', 'nox', 'puff', 'rum', 'tor'];
 
 // ---- classification ------------------------------------------------------
 
@@ -241,7 +250,8 @@ function computeCreature(run) {
   };
 
   const epithet = traits[0] ? traits[0] + ' ' : '';
-  const name = pick(NAME_HEAD, rng) + pick(NAME_TAIL, rng);
+  const head = pick(NAME_HEAD, rng), mid = rng() < 0.34 ? pick(NAME_MID, rng) : '';
+  const name = head + mid + pick(NAME_TAIL, rng);
 
   // palette: nightshift darkens and iridesces the base
   const palette = Object.assign({}, species.palette);
