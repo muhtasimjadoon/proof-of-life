@@ -4,6 +4,11 @@
   "description": "A weekly report of what your Claude Code agents did, by type of work. Every run hatches a creature: a signed, tamper-evident record of that run.",
   "license": "MIT",
   "author": "Muhtasim Jadoon",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/muhtasimjadoon/proof-of-life.git"
+  },
+  "homepage": "https://github.com/muhtasimjadoon/proof-of-life#readme",
   "bin": {
     "proof-of-life": "cli.mjs"
   },

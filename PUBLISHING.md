@@ -2,7 +2,9 @@
 
 Everything is built and tested locally. Each step below is one command you run yourself. Nothing here has been run yet.
 
-Replace `<owner>` with your GitHub user name. Run every command from the repo folder (`D:\claude\proof-of-life`).
+Run every command from the repo folder (`D:\claude\proof-of-life`). The GitHub owner is already set to `muhtasimjadoon` (the account `gh` is logged in as on this PC) in README.md and package.json.
+
+Accounts you need: Cloudflare (free, for the collector) and npm (free, for `npx`). GitHub is already logged in through `gh`.
 
 ## 0. Deploy the telemetry collector and paste its URL (first, before GitHub or npm)
 
@@ -34,28 +36,24 @@ npm pack --dry-run              # the exact files npm will ship (no data/, no co
 The repo is the marketplace and the plugin at once: `.claude-plugin/marketplace.json` lists one plugin with `"source": "./"`.
 
 ```bash
-gh repo create <owner>/proof-of-life --public --source . --remote origin --push
+gh repo create muhtasimjadoon/proof-of-life --public --source . --remote origin --push
 ```
 
-CI (`.github/workflows/ci.yml`) then runs the install smoke test on Windows, macOS and Ubuntu with Node 18 and 20. GitHub Actions is free for public repos. Check it at `https://github.com/<owner>/proof-of-life/actions`.
-
-After the repo exists, replace `<owner>` in README.md (Install section) and commit.
+CI (`.github/workflows/ci.yml`) then runs the install smoke test on Windows, macOS and Ubuntu with Node 18 and 20. GitHub Actions is free for public repos. Check it at `https://github.com/muhtasimjadoon/proof-of-life/actions`.
 
 Users then install the plugin with:
 
 ```
-/plugin marketplace add <owner>/proof-of-life
+/plugin marketplace add muhtasimjadoon/proof-of-life
 /plugin install proof-of-life@proof-of-life
 ```
-
-On Claude Code 2.1.275 or later this also works in one step: `/plugin install proof-of-life --marketplace <owner>/proof-of-life`.
 
 ## 2. npm
 
 The name `proof-of-life` was free on npm on 2026-10-10 (`npm view proof-of-life` gave 404). Check again right before you publish.
 
 ```bash
-npm login                       # once; opens the browser
+npm login                       # once; opens the browser (make a free account at npmjs.com first)
 npm publish --access public
 ```
 

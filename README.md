@@ -1,12 +1,12 @@
 # Proof of Life
 
-**A weekly report of what your agents did, by type of work. Every Claude Code run hatches a creature; the creature is the hook.**
+**A weekly report of what your Claude Code agents did, by type of work. Every run also hatches a creature, which is what keeps you looking.**
 
 Each creature is a signed, tamper-evident record of one run: nobody can change a record later without it showing. It is your own record, not an audit.
 
-You give an agent a task and wait. Proof of Life turns that wait into something: when a run starts, an egg starts growing. When it ends, a creature hatches, shaped by what the agent really did.
+You give an agent a task and wait. When a run starts, an egg starts growing. When it ends, a creature hatches, shaped by what the agent really did. Once a week, **Share this week** saves one card: your runs and hours by type of work ([more below](#your-week-and-live-status)).
 
-- **Species is set by the work done**, read from the tools the agent called and the files it touched: Cog (code), Scholar (research), Moth (writing), Prism (design), Lumen (video), Hydra (outreach), Wisp (browser and computer use).
+- **Species is set by the work done**, read from the tools the agent called and the files it touched: Cog (code), Scholar (research), Moth (writing), Prism (design), Lumen (video), Hydra (outreach), Wisp (browser, computer use and anything general).
 - **Rarity is set by what the run got done**, scored from counts only: 1 point per tool call that worked (up to 200), 5 per kind of tool used, 3 per file written or edited (up to 60), 10 per `git commit` (up to 10), 15 per `git push` (up to 5), minus 3 per failed tool call. Common (under 20), Uncommon (20+), Rare (50+), Epic (120+), Legendary (250+ and 3 or more kinds of tool). Run length never raises rarity, so a session left idle for hours stays Common; it only earns the *Marathon* trait. Creatures hatched before Oct 10, 2026 keep the tier their run length gave them (rule 1); new ones carry `ruleVersion: 2` in their signed record. Every tier is a visible upgrade: a pattern and an accessory, then metal trim and glowing eyes, glowing markings and an aura, and at Legendary a silhouette and finish upgrade: a Gold Chrome or Holo body, a pair of wings made for its species, a bigger crest and star eyes. Every creature wears at most one accessory, and nothing ever covers its eyes.
 - **Mythic, the top tier,** can't be bought or rushed. Solo, it takes a run with 10 or more subagents that earns Legendary and doesn't fail (*Legion*), or the first run of a 30th day in a row (*Devoted*). Cross-feeding with another operator on the same server also breeds Mythic hybrids.
 - **Every creature is one of a kind.** Its colorway (8 per species), pattern, accessory, expression and eyes are read off its signed seed, and about 1 in 64 hatches **Shiny** in chrome or holo. Nothing about the look is stored, so it can't be edited either.
@@ -28,14 +28,14 @@ After a reboot: `npx proof-of-life start`. Data lives in `~/.proof-of-life/data`
 
 **Claude Code plugin (no terminal, works in the Desktop Code tab).** In a session:
 ```
-/plugin marketplace add <owner>/proof-of-life
+/plugin marketplace add muhtasimjadoon/proof-of-life
 /plugin install proof-of-life@proof-of-life
 ```
 The plugin starts the server when a session starts and opens the page the first time. Data lives in `~/.proof-of-life/data`.
 
 **git clone.**
 ```bash
-git clone https://github.com/<owner>/proof-of-life && cd proof-of-life
+git clone https://github.com/muhtasimjadoon/proof-of-life && cd proof-of-life
 node cli.mjs                   # hooks + server + page; remove: node cli.mjs uninstall
 ```
 A clone keeps its data in `./data`. The old way still works: `node install.mjs`, then `node server.js`.
@@ -88,7 +88,7 @@ curl  http://localhost:4855/api/version                      # the running build
 
 ## Your week, and live status
 
-- **Share this week** (Home, in *This week*) saves one PNG card of what your agents did this ISO week: runs and hours by type of work (non-code work first, Engineering last), your top creature, the week number and the total runs. It uses only your own runs; bred creatures are not runs, sessions left open are not counted as hours, and time a run spent waiting on you (a permission prompt or a question) is left out of its hours for runs hatched from v1.0 on. The "% not code" line counts only runs typed from what the agent did (tools, files, commands), the same rule as `scripts/stats.mjs`, and says how many runs that is. A week with no runs saves an honest empty card.
+- **Share this week** (Home, in *This week*) saves one PNG card of what your agents did this ISO week: runs and hours by type of work (non-code work first, Engineering last), your top creature, the week number and the total runs. It uses only your own runs; bred creatures are not runs, sessions left open are not counted as hours, and time a run spent waiting on you (a permission prompt or a question) is left out of its hours for runs hatched from v1.0 on. The "% not code" line counts only runs typed from what the agent did (tools, files, commands), the same rule as `scripts/stats.mjs`, and says how many runs that is. It only appears when at least half the week's runs were typed that way, so the card never shows a share that its own bars contradict. A week with no runs saves an honest empty card.
 - **Live status:** while a run is going, its egg and the top bar say *Working*. When Claude Code asks for permission or asks you a question, the `Notification` hook marks it *Needs your input* until the next prompt, the next finished subagent or the end of the run. When the run ends it shows *Done* for two minutes, with the creature it hatched. Only one word leaves the hook (permission, question or input), never the notice text.
 - **Already installed before this?** Re-run the installer once to add the `Notification` hook: `node cli.mjs` in a clone, or `npx proof-of-life`. The plugin picks it up on update.
 

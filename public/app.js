@@ -2396,7 +2396,8 @@ function weekSummary(now) {
     if (!isOpenRun(c)) { const a = agentMs(c); b.ms += a; ms += a; }
   }
   // the not-code share counts only runs typed from what the agent did (tools,
-  // files, commands), the same rule as scripts/stats.mjs; prompt-typed runs are left out
+  // files, commands), the same rule as scripts/stats.mjs; prompt-typed runs are left out.
+  // The card shows it only when typed runs are at least half the week, so it never contradicts the bars.
   const typed = runs.filter((c) => c.domainSource === 'activity');
   const order = (a, b) => b.runs - a.runs || b.ms - a.ms || a.label.localeCompare(b.label);
   const types = Object.values(by).filter((t) => t.key !== 'cog').sort(order).concat(by.cog ? [by.cog] : []);
@@ -2424,7 +2425,7 @@ function buildWeekCardSVG(w) {
     const firstCode = rows.findIndex((t) => t.key === 'cog');
     body = `${T(80, 330, 120, '#f4f2ff', fmtN(w.runs), { a: 'start', serif: 1 })}${T(80, 380, 24, '#9aa3bf', w.runs === 1 ? 'agent run' : 'agent runs', { a: 'start', ls: 2 })}
       ${T(470, 330, 120, '#f4f2ff', hrs(w.ms).replace(' ', ''), { a: 'start', serif: 1 })}${T(470, 380, 24, '#9aa3bf', 'of agent time', { a: 'start', ls: 2 })}
-      ${T(80, 470, 22, '#8d96b3', 'BY TYPE OF WORK', { a: 'start', ls: 5, w: 700 })}${w.typed ? T(W - 80, 470, 22, '#8d96b3', w.nonCode ? Math.round((100 * w.nonCode) / w.typed) + '% NOT CODE' : 'ALL CODE', { a: 'end', ls: 4, w: 700 }) + T(W - 80, 500, 17, '#646d88', `of the ${plural(w.typed, 'run')} typed from what the agent did`, { a: 'end' }) : ''}
+      ${T(80, 470, 22, '#8d96b3', 'BY TYPE OF WORK', { a: 'start', ls: 5, w: 700 })}${w.typed && w.typed * 2 >= w.runs ? T(W - 80, 470, 22, '#8d96b3', w.nonCode ? Math.round((100 * w.nonCode) / w.typed) + '% NOT CODE' : 'ALL CODE', { a: 'end', ls: 4, w: 700 }) + T(W - 80, 500, 17, '#646d88', `of the ${plural(w.typed, 'run')} typed from what the agent did`, { a: 'end' }) : ''}
       ${rows.map((t, i) => { const y = y0 + i * rh + (firstCode > 0 && i >= firstCode ? 18 : 0), col = (ART_PAL[t.key] || ART_PAL.wisp).glow, bw = Math.max(10, (450 * t.runs) / max);
         return `${firstCode > 0 && i === firstCode ? `<path d="M80 ${y - 30}H${W - 80}" stroke="#ffffff" stroke-opacity=".1" stroke-width="2"/>` : ''}${T(80, y + 30, 30, '#f4f2ff', t.label, { a: 'start', w: 600 })}<rect x="330" y="${y + 6}" width="450" height="32" rx="16" fill="#ffffff" fill-opacity=".05"/><rect x="330" y="${y + 6}" width="${F(bw)}" height="32" rx="16" fill="${col}"/>${T(W - 80, y + 31, 26, '#d8dcea', `${plural(t.runs, 'run')} · ${t.ms ? hrs(t.ms) : '0 min'}`, { a: 'end', w: 600 })}`; }).join('')}`;
     if (w.top) {

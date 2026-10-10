@@ -42,7 +42,7 @@ About 10 minutes, free tier. You need a Cloudflare account and Node 18+. Run eve
 
    It prints the Worker URL, like `https://pol-telemetry.<your-subdomain>.workers.dev`.
 
-6. Smoke test (expect `{"ok":true,"stored":true}`, then delete the test row). Use the current ISO week (`node -e "console.log(require('../telemetry.js').isoWeek(Date.now()))"`):
+6. Smoke test (expect `{"ok":true,"stored":true}`, then delete the test row). Replace `2026-W42` below with the current ISO week, which this prints: `node -e "console.log(require('../telemetry.js').isoWeek(Date.now()))"`
 
    ```
    curl -X POST https://pol-telemetry.<your-subdomain>.workers.dev/v1/heartbeat -H "content-type: application/json" -d "{\"installId\":\"00000000000000000000000000000000\",\"appVersion\":\"1.0.0\",\"isoWeek\":\"2026-W42\",\"runsHatched\":0,\"activeDays\":0,\"runsBySpecies\":{},\"agent\":\"claude-code\"}"
