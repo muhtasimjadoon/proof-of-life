@@ -4,9 +4,25 @@ Everything is built and tested locally. Each step below is one command you run y
 
 Replace `<owner>` with your GitHub user name. Run every command from the repo folder (`D:\claude\proof-of-life`).
 
-## 0. Check before you publish
+## 0. Deploy the telemetry collector and paste its URL (first, before GitHub or npm)
+
+Plugin users get the code straight from the GitHub repo and npx users from npm, so the collector URL must be in `telemetry.js` before either goes out. With it empty, every install that says yes sends nothing, and there are no week-1 or D7 numbers.
+
+1. Follow `collector/DEPLOY.md` (about 10 minutes, free Cloudflare tier). It ends with a URL like `https://pol-telemetry.<your-subdomain>.workers.dev`.
+2. In `telemetry.js`, set `const TELEMETRY_URL = 'https://pol-telemetry.<your-subdomain>.workers.dev/v1/heartbeat';`
+3. Check and commit:
 
 ```bash
+npm run check-release           # fails while TELEMETRY_URL is empty or not the https .../v1/heartbeat URL
+git commit -am "Set telemetry collector URL"
+```
+
+`npm publish` runs the same check (`prepublishOnly`) and refuses to publish until it passes.
+
+## 0b. Check before you publish
+
+```bash
+npm run check-release           # collector URL set, package and plugin versions equal
 npm test                        # unit tests
 npm run smoke                   # clone, npx and plugin installs end to end, on temp folders and ports 4871-4873
 claude plugin validate .        # marketplace + plugin manifests

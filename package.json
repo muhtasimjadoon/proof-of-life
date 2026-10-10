@@ -34,7 +34,9 @@
     "stats": "node scripts/stats.mjs",
     "metrics": "node scripts/metrics.mjs",
     "test": "node scripts/metrics.test.mjs && node collector/test.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "check-release": "node scripts/check-release.mjs",
+    "prepublishOnly": "node scripts/check-release.mjs"
   },
   "keywords": [
     "claude-code",

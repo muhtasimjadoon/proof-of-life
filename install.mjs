@@ -7,6 +7,8 @@
 //   node install.mjs              install
 //   node install.mjs --uninstall  remove only the Proof of Life hooks
 //   node install.mjs --telemetry=on|off   set the usage-stats choice (no question)
+//   (to change only the usage-stats answer later, without touching hooks:
+//    node cli.mjs telemetry on|off, or npx proof-of-life telemetry on|off)
 //
 // Usage stats (TELEMETRY.md) are off by default. Run in a terminal, it asks
 // once (y/N); run without one (CI, scripts) it never asks and stays off.
@@ -34,9 +36,10 @@ if (telArg !== undefined && !/^(on|off)$/.test(telArg)) { console.error('--telem
 async function telemetryChoice() {
   if (uninstall) return;
   const prev = Telemetry.readFile(dataDir);
-  if (telArg) { Telemetry.setChoice(dataDir, telArg === 'on'); console.log(`Usage stats: ${telArg}.`); return; }
-  if (typeof prev.enabled === 'boolean') { console.log(`Usage stats: ${prev.enabled ? 'on' : 'off'} (change with: node install.mjs --telemetry=${prev.enabled ? 'off' : 'on'})`); return; }
-  if (!process.stdin.isTTY || !process.stdout.isTTY) { console.log('Usage stats: off (not asked: no terminal). Turn on with: node install.mjs --telemetry=on'); return; }
+  const kind = Telemetry.installKind(here);
+  if (telArg) { Telemetry.setChoice(dataDir, telArg === 'on', 'install'); console.log(`Usage stats: ${telArg}.`); return; }
+  if (typeof prev.enabled === 'boolean') { console.log(`Usage stats: ${prev.enabled ? 'on' : 'off'} (change with: ${Telemetry.changeCommand(!prev.enabled, kind)})`); return; }
+  if (!process.stdin.isTTY || !process.stdout.isTTY) { console.log('Usage stats: off (not asked: no terminal). Turn on with: ' + Telemetry.changeCommand(true, kind)); return; }
   console.log('\nShare anonymous weekly usage counts to help improve Proof of Life?');
   console.log('Once a week: a random install ID, app version, week, number of runs, active days, runs per type of work.');
   console.log('Never: names, handles, prompts, paths, file contents or commands. Details: TELEMETRY.md');
@@ -44,8 +47,8 @@ async function telemetryChoice() {
   let ans = '';
   try { ans = await rl.question('Share usage counts? [y/N] '); } catch {} finally { rl.close(); }
   const yes = /^y(es)?$/i.test(ans.trim());
-  Telemetry.setChoice(dataDir, yes);
-  console.log(`Usage stats: ${yes ? 'on' : 'off'}. Change any time: node install.mjs --telemetry=${yes ? 'off' : 'on'}`);
+  Telemetry.setChoice(dataDir, yes, 'install');
+  console.log(`Usage stats: ${yes ? 'on' : 'off'}. Change any time: ${Telemetry.changeCommand(!yes, kind)}`);
 }
 
 const HOOKS = {

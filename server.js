@@ -333,9 +333,51 @@ function notifyEgg(op, { id, kind }) {
   if (!egg) return null; // idle notices after a run ended have no egg: nothing to show
   const k = WAIT_KINDS.includes(kind) ? kind : 'input';
   if (egg.waiting === k) { egg.lastSeen = Date.now(); return egg; }
-  egg.waiting = k; egg.waitingAt = Date.now(); egg.lastSeen = egg.waitingAt;
+  const now = Date.now();
+  if (!egg.waiting) { egg.waitingAt = now; openWait(egg, now); }
+  egg.waiting = k; egg.lastSeen = now;
   saveState();
   return egg;
+}
+// Time a run spends waiting on you is not agent time. Each wait is kept on the
+// egg as [start, end]; the end is the first sign that work went on (a subagent
+// finished, or the quiet stretch in the transcript that the wait sits in ended,
+// see hooks/_activity.mjs quietGaps). The hatched creature carries the total as
+// waitMs, an unsigned field beside the signed wall-clock durationMs.
+const MAX_WAITS = 50;
+function openWait(egg, now) {
+  const w = Array.isArray(egg.waits) ? egg.waits : (egg.waits = []);
+  const last = w[w.length - 1];
+  if ((!last || last[1] != null) && w.length < MAX_WAITS) w.push([now, null]);
+}
+function closeWait(egg, now) {
+  const w = egg.waits, last = Array.isArray(w) && w[w.length - 1];
+  if (last && last[1] == null) last[1] = now;
+}
+function cleanGaps(g) {
+  if (!Array.isArray(g)) return null;
+  const out = [];
+  for (const p of g.slice(0, 100)) {
+    const a = Number(Array.isArray(p) && p[0]), b = Number(Array.isArray(p) && p[1]);
+    if (isFinite(a) && isFinite(b) && b > a) out.push([a, b]);
+  }
+  return out;
+}
+function waitedMs(egg, gaps, startedAt, now) {
+  let total = 0;
+  for (const w of Array.isArray(egg.waits) ? egg.waits : []) {
+    const s = Number(w[0]); if (!isFinite(s)) continue;
+    let e = w[1] == null ? now : Number(w[1]);
+    if (gaps) {
+      // the transcript shows when work went on: the end of the quiet stretch the
+      // wait started in. No such stretch means the wait was over within seconds.
+      const g = gaps.find(([a, b]) => a <= s && s < b);
+      if (!g) continue;
+      e = Math.min(e, g[1]);
+    }
+    total += Math.max(0, Math.min(e, now) - Math.max(s, startedAt));
+  }
+  return Math.min(total, Math.max(0, now - startedAt));
 }
 // runs that just ended, kept in memory only (never signed, never on disk), so the
 // egg card can say "done" for a short while after the Stop
@@ -366,6 +408,7 @@ function tickSubagent(op, { id, activity }) {
   if (!egg) return null;
   egg.subagents = (egg.subagents || 0) + 1;
   egg.lastSeen = Date.now();
+  closeWait(egg, egg.lastSeen);
   delete egg.waiting; delete egg.waitingAt; // work moved on, so the wait is over
   // subagents' own tool calls live in their own transcripts; count them too
   const sub = cleanActivity(activity);
@@ -456,7 +499,7 @@ function streakInfo(op, now, tz) {
   for (let d = today - 1; days.has(d); d--) n++;
   return { streakDays: n, firstOfDay: !days.has(today) };
 }
-function hatch(op, { id, error, subagents, activity, tzOffset }) {
+function hatch(op, { id, error, subagents, activity, gaps, tzOffset }) {
   const rid = cleanRunId(id);
   const egg = findEgg(op, rid);
   const now = Date.now();
@@ -475,6 +518,9 @@ function hatch(op, { id, error, subagents, activity, tzOffset }) {
   };
   const creature = computeCreature(run);
   attest(creature, op.handle);
+  // unsigned and outside the signed message: time this run waited on you (only when it did)
+  const waitMs = waitedMs(egg, cleanGaps(gaps), startedAt, now);
+  if (waitMs > 0) creature.waitMs = waitMs;
   op.creatures.push(creature);
   if (creature.status === 'healthy') raiseHerd(op, creature);
   delete op.eggs[egg.id];
@@ -490,11 +536,14 @@ function topSpecies(creatures) {
   for (const c of creatures) count[c.speciesName] = (count[c.speciesName] || 0) + 1;
   return Object.keys(count).sort((a, b) => count[b] - count[a])[0] || '—';
 }
+// agent time of a run: its wall-clock length minus the time it waited on you
+// (runs hatched before waits were recorded have no waitMs and count in full)
+function agentMs(c) { return Math.max(0, (c.durationMs || 0) - (c.waitMs || 0)); }
 function statsOf(op) {
   // machine hours leave out sessions left open for over a day (not real work);
   // they are reported separately so nothing is hidden
   let machineMs = 0, openMs = 0, openCount = 0;
-  for (const c of op.creatures) { if (isOpenSession(c)) { openMs += c.durationMs; openCount++; } else machineMs += c.durationMs || 0; }
+  for (const c of op.creatures) { if (isOpenSession(c)) { openMs += c.durationMs; openCount++; } else machineMs += agentMs(c); }
   // one 'rarest' ranking for every page (variants.js): tier, then Shiny, then Holo / Gold Chrome, then the longer run
   // a session left open keeps its signed tier, but it never counts as your rarest run
   const rarest = op.creatures.reduce((best, c) => (c.bredBy || isOpenSession(c) ? best : !best || Variants.rarer(c, best) < 0 ? c : best), null);
@@ -687,6 +736,8 @@ function send(req, res, code, body, headers) {
   res.writeHead(code, h); res.end(body);
 }
 function json(res, code, obj) { send(res._req, res, code, JSON.stringify(obj)); }
+// usage-stats status for the page; canSet: the page may show its yes/no (this machine only)
+function telemetryView(req) { const t = Telemetry.status(DATA_DIR); t.canSet = isLocal(req) && !t.envOff; return t; }
 // conditional GET: build the body only when something changed since the
 // client's copy (polling an unchanged page costs a few bytes, not ~700KB)
 function cached(req, res, tag, build) {
@@ -734,7 +785,17 @@ const server = http.createServer(async (req, res) => {
   if (url === '/health') return json(res, 200, { ok: true, operators: Object.keys(state.operators).length });
   if (url.startsWith('/api/') && !hostOk(req)) return json(res, 403, { error: 'unexpected Host header' });
   if (req.method === 'POST') { const bad = writeOk(req); if (bad) return json(res, bad.code, { error: bad.error }); }
-  if (url === '/api/version') { const disk = codeHash(); return json(res, 200, { api: API_LEVEL, build: BUILD, disk, stale: disk !== BUILD, pid: process.pid, sxv: Skills.SXV, maxLevel: Skills.MAX_LEVEL, skills: Skills.SKILLS.length, telemetry: Telemetry.status(DATA_DIR) }); }
+  if (url === '/api/version') { const disk = codeHash(); return json(res, 200, { api: API_LEVEL, build: BUILD, disk, stale: disk !== BUILD, pid: process.pid, sxv: Skills.SXV, maxLevel: Skills.MAX_LEVEL, skills: Skills.SKILLS.length, telemetry: telemetryView(req) }); }
+  // the usage-stats yes/no from the page (TELEMETRY.md): this machine only, same
+  // origin (writeOk above), stored in telemetry.json. Hooks are not touched.
+  if (url === '/api/telemetry' && req.method === 'POST') {
+    if (!isLocal(req)) return json(res, 403, { error: 'local only' });
+    const body = await readBody(req);
+    if (!body || typeof body.enabled !== 'boolean') return json(res, 400, { error: 'send {"enabled": true} or {"enabled": false}' });
+    Telemetry.setChoice(DATA_DIR, body.enabled, 'page');
+    if (body.enabled && telemetry) telemetry.nudge();
+    return json(res, 200, { ok: true, telemetry: telemetryView(req) });
+  }
 
   // onboarding for a new operator on a hosted server -> returns their token
   if (req.method === 'POST' && url === '/api/register') {

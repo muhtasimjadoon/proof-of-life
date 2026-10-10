@@ -4,10 +4,12 @@
 //   npx proof-of-life              install the hooks, start the server, open the page
 //   npx proof-of-life uninstall    remove the hooks and stop the server it started
 //   npx proof-of-life start|stop   start or stop the server only
+//   npx proof-of-life telemetry on|off|status   usage stats answer only (hooks untouched)
 //   node cli.mjs ...               the same from a git clone
 //
 // Flags: --no-open (never open a browser), --no-start (hooks only),
 // --telemetry=on|off (passed to install.mjs).
+//
 // `ensure` is what the Claude Code plugin runs at session start: it starts the
 // server if it is not running, says nothing and always exits 0.
 //
@@ -134,7 +136,7 @@ function runInstaller(root, extra) {
 
 async function main() {
   if (cmd === 'help' || flag('--help') || flag('-h')) {
-    console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 12).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
+    console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 11).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
     return 0;
   }
   if (cmd === 'ensure') {
@@ -145,6 +147,19 @@ async function main() {
       try { fs.writeFileSync(mark, new Date().toISOString() + '\n'); } catch {}
       openBrowser(URL_);
     }
+    return 0;
+  }
+  if (cmd === 'telemetry') {
+    // the usage-stats answer only: never touches the hooks or settings.json, so it
+    // is safe for plugin users (their hooks come from the plugin) and npx users alike
+    const Telemetry = require('./telemetry.js');
+    const dataDir = Paths.dataDir(HERE);
+    const want = (argv.filter((a) => !a.startsWith('-'))[1] || 'status').toLowerCase();
+    if (want === 'on' || want === 'off') Telemetry.setChoice(dataDir, want === 'on', 'command');
+    else if (want !== 'status') { console.error('Usage: npx proof-of-life telemetry on|off|status'); return 2; }
+    const t = Telemetry.status(dataDir);
+    console.log(`Usage stats: ${t.enabled ? 'on' : 'off'} (${t.reason}). Stored in ${path.join(dataDir, 'telemetry.json')}`);
+    console.log(`Change it: ${t.change}. What is and is never sent: TELEMETRY.md`);
     return 0;
   }
   if (cmd === 'stop') {

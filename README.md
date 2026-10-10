@@ -49,7 +49,7 @@ Then use Claude Code as usual. `stop` and `start` work in every path (`npx proof
 Everything runs on your machine. Your creatures live in `state.json` in your data folder (`./data` in a git clone, `~/.proof-of-life/data` for npx and the plugin).
 
 - **Your prompts never leave the hook.** The prompt is classified locally into a species key, and only that key is sent to the local server.
-- **When a run ends,** the hook reads the transcript and sends only counts: tool names, file extensions from a known list, the first word of shell commands from a known list (`npm`, `git`, `ffmpeg`), how many `git commit` and `git push` commands ran, and how many tool calls came back as errors. Anything else is sent as `other`. It never sends file paths, file names, file contents, command arguments, error text or the conversation. When `POL_SERVER` points at another machine, MCP tool names are reduced to a family (`mcp__outreach`, `mcp__browser`), so the host never learns which servers you run.
+- **When a run ends,** the hook reads the transcript and sends only counts: tool names, file extensions from a known list, the first word of shell commands from a known list (`npm`, `git`, `ffmpeg`), how many `git commit` and `git push` commands ran, and how many tool calls came back as errors, plus the start and end times of quiet stretches in the run (so waits on you are not counted as agent time). Anything else is sent as `other`. It never sends file paths, file names, file contents, command arguments, error text or the conversation. When `POL_SERVER` points at another machine, MCP tool names are reduced to a family (`mcp__outreach`, `mcp__browser`), so the host never learns which servers you run.
 - The server listens on `127.0.0.1` only, and on loopback it only answers to a loopback `Host`, so a web page that rebinds its domain to your machine can't read or change anything. Requests that change state must be JSON and must come from the page itself or from a hook: a request from another site is refused. Set `POL_HOST=0.0.0.0` to share it; remote requests then need an operator token to read a collection.
 - The hooks time out in 1.5 seconds and always exit cleanly. They never slow down or break a session, even if the server is off.
 - **Usage stats are off unless you say yes.** The installer asks once (y/N). If you agree, the server (never the hooks) sends one counts-only heartbeat a week: a random install ID, app version, week, runs, active days and runs per type of work. No names, handles, prompts, paths or file contents. Exact schema and how to turn it off: [TELEMETRY.md](TELEMETRY.md).
@@ -88,7 +88,7 @@ curl  http://localhost:4855/api/version                      # the running build
 
 ## Your week, and live status
 
-- **Share this week** (Home, in *This week*) saves one PNG card of what your agents did this ISO week: runs and hours by type of work (non-code work first, Engineering last), your top creature, the week number and the total runs. It uses only your own runs; bred creatures are not runs, and sessions left open are not counted as hours. A week with no runs saves an honest empty card.
+- **Share this week** (Home, in *This week*) saves one PNG card of what your agents did this ISO week: runs and hours by type of work (non-code work first, Engineering last), your top creature, the week number and the total runs. It uses only your own runs; bred creatures are not runs, sessions left open are not counted as hours, and time a run spent waiting on you (a permission prompt or a question) is left out of its hours for runs hatched from v1.0 on. The "% not code" line counts only runs typed from what the agent did (tools, files, commands), the same rule as `scripts/stats.mjs`, and says how many runs that is. A week with no runs saves an honest empty card.
 - **Live status:** while a run is going, its egg and the top bar say *Working*. When Claude Code asks for permission or asks you a question, the `Notification` hook marks it *Needs your input* until the next prompt, the next finished subagent or the end of the run. When the run ends it shows *Done* for two minutes, with the creature it hatched. Only one word leaves the hook (permission, question or input), never the notice text.
 - **Already installed before this?** Re-run the installer once to add the `Notification` hook: `node cli.mjs` in a clone, or `npx proof-of-life`. The plugin picks it up on update.
 
@@ -105,7 +105,7 @@ curl  http://localhost:4855/api/version                      # the running build
 | `POL_SERVER`, `POL_TOKEN` | point the hooks at a hosted server instead of localhost |
 | `node server.js --samples` | add sample operators to explore the Board and cross-breeding |
 | `POL_TELEMETRY=off` | never send usage stats, whatever you answered at install ([TELEMETRY.md](TELEMETRY.md)) |
-| `node install.mjs --telemetry=on\|off` | change your usage-stats answer |
+| `npx proof-of-life telemetry on\|off\|status` | change your usage-stats answer without touching hooks (`node cli.mjs telemetry on\|off` in a clone, or the button under How it works → Provenance) |
 | `node scripts/stats.mjs [state.json]` | share of your creatures by work type since 2026-10-09 (read-only; default: `state.json` in your data folder) |
 
 ## How it works
@@ -115,7 +115,7 @@ curl  http://localhost:4855/api/version                      # the running build
 | `hooks/run-start.mjs` | `UserPromptSubmit`: lays an egg |
 | `hooks/run-subagent.mjs` | `SubagentStop`: counts subagents |
 | `hooks/run-notify.mjs` | `Notification`: marks the running egg "needs your input" (permission prompt or question); only one word is sent, never the notice text |
-| `hooks/run-end.mjs` | `Stop`: reads what the agent did and hatches the creature |
+| `hooks/run-end.mjs` | `Stop`: reads what the agent did and hatches the creature; also sends the start and end times of quiet stretches in the run (15 s or more), so time spent waiting on you is not counted as agent time |
 | `engine.js` | deterministic creature engine (species, rarity, Mythic, traits, art seed) |
 | `skills.js` | skill curve, bands and xp formulas (shared with the browser as `/skills.js`) |
 | `public/variants.js` | the collectible look of every seed: colorways, patterns, accessories, faces, Shiny, growth, Dex slots |

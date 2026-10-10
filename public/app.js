@@ -1385,7 +1385,7 @@ function sec_home() {
   const wg = en && en.weekGains && en.weekGains.length ? en.weekGains : null, wmax = wg ? Math.max(...wg.map((g) => g.xp)) : 1;
   const week = `<div class="panel weekp"><div class="p-head"><h2>This week</h2><span class="note link" data-go="skills">all skills →</span></div>
     ${rw ? `<div class="rw link-c" data-id="${escapeXml(rw.id)}" style="--tier:${rw.rarity.chip}">${creatureSVG(rw, 84, { live: true })}<div><span class="eyebrow">Rarest this week</span><b>${escapeXml(shortName(rw))} <em class="rw-sp">${escapeXml(rw.speciesName)}</em></b><span><span style="color:${rw.rarity.chip}">${rw.rarity.tier}</span> · ${escapeXml(en.rarestWeek.durationLabel)} run · ${shortDate(rw.bornAt)}</span></div></div>` : ''}
-    ${weekShareHTML()}
+    ${weekShareHTML()}${telemetryAsk()}
     ${wg ? wg.map((g) => { const s = latest.skills.list.find((x) => x.key === g.key); return `<div class="wk-row"><span>${escapeXml(g.name)}</span><b>+${fmtN(g.xp)} xp</b><div class="wk-bar"><i style="width:${Math.round((g.xp / wmax) * 100)}%;background:${s ? s.band.color : 'var(--green)'}"></i></div></div>`; }).join('') : '<p class="note">No skill gains in the last 7 days.</p>'}</div>`;
   const os = latest.stats.openSessions;
   const stats = `<div class="statstrip"><div class="stat"><b>${fmtN(cs.length)}</b><span>creatures</span></div><div class="stat"><b>${latest.stats.machineHours}</b><span>hours Claude worked</span></div><div class="stat"><b>${latest.skills ? fmtN(latest.skills.totalLevel) : '—'}</b><span>total level</span></div>${hasPower(latest.me) ? `<div class="stat"><b>${fmtN(latest.me.score)}</b><span>power</span></div><div class="stat"><b>${fmtN(latest.me.week)}</b><span>points this week</span></div>` : ''}
@@ -1635,9 +1635,24 @@ function sec_proof() {
 // usage stats (TELEMETRY.md): always say whether it is on and how to change it
 function telemetryLine() {
   const t = server.info && server.info.telemetry;
-  if (!t) return '<p class="note" id="telemetry-line">Usage stats: off unless you said yes at install. See TELEMETRY.md.</p>';
+  if (!t) return '<p class="note" id="telemetry-line">Usage stats: off unless you said yes. See TELEMETRY.md.</p>';
   const what = t.enabled ? `on (${escapeXml(t.reason)}): once a week, counts only${t.lastSentWeek ? `, last sent ${escapeXml(t.lastSentWeek)}` : ''}${t.endpointSet ? '' : ', no collector set so nothing is sent'}` : `off (${escapeXml(t.reason)})`;
-  return `<p class="note" id="telemetry-line">Usage stats: ${what}. To change it: <code>${escapeXml(t.change)}</code>${t.enabled ? ' (or set POL_TELEMETRY=off)' : ''}. What is and is never sent: TELEMETRY.md.</p>`;
+  const btn = t.canSet ? ` <button data-tel="${t.enabled ? 'off' : 'on'}">${t.enabled ? 'Turn off' : 'Turn on'}</button>` : '';
+  return `<p class="note" id="telemetry-line">Usage stats: ${what}. To change it: <code>${escapeXml(t.change)}</code>${t.enabled ? ' (or set POL_TELEMETRY=off)' : ''}${t.canSet ? ', or here' : ''}. What is and is never sent: TELEMETRY.md.${btn}</p>`;
+}
+// asked once on Home when nobody has answered yet (plugin and npx installs are
+// never asked in a terminal): Yes or No is stored in telemetry.json, no hooks touched
+function telemetryAsk() {
+  const t = server.info && server.info.telemetry;
+  if (!t || t.decided || !t.canSet) return '';
+  return `<div class="wk-share" id="tel-ask"><span class="note">Share anonymous weekly usage counts to help improve Proof of Life? Once a week: a random install ID, app version, number of runs, active days and runs per type of work. Never names, prompts, paths, file contents or commands (TELEMETRY.md).</span><span><button data-tel="on">Yes, share counts</button> <button data-tel="off">No</button></span></div>`;
+}
+async function setTelemetry(on) {
+  try {
+    const r = await fetch('/api/telemetry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: on }) });
+    if (r.ok) { const j = await r.json(); server.info = Object.assign({}, server.info, { telemetry: j.telemetry }); }
+  } catch {}
+  renderActive();
 }
 
 // ---- section: skills (computed server-side in skills.js; rendered here) ----
@@ -1936,7 +1951,7 @@ async function checkServer(st) {
   server.old = !st || st.api == null || st.api < APP_API || !st.skills || st.rev == null;
   if (!server.old && Date.now() - server.checkedAt > 60000) {
     server.checkedAt = Date.now();
-    try { const r = await fetch('/api/version'); if (r.ok) { const had = JSON.stringify(server.info && server.info.telemetry); server.info = await r.json(); if (had !== JSON.stringify(server.info.telemetry) && current === 'proof' && document.getElementById('modal').hidden) renderActive(); server.stale = !!server.info.stale; if (server.info.api < APP_API) server.old = true; } else server.old = true; } catch {}
+    try { const r = await fetch('/api/version'); if (r.ok) { const had = JSON.stringify(server.info && server.info.telemetry); server.info = await r.json(); if (had !== JSON.stringify(server.info.telemetry) && (current === 'proof' || current === 'home') && document.getElementById('modal').hidden) renderActive(); server.stale = !!server.info.stale; if (server.info.api < APP_API) server.old = true; } else server.old = true; } catch {}
   }
   showBanner();
 }
@@ -1975,6 +1990,7 @@ function renderActive() {
   const on = stage.querySelector('#opennew'); if (on) on.onclick = () => openModal(latest.creatures[0]);
   const sv = stage.querySelector('#savenew'); if (sv) sv.onclick = () => downloadCard(latest.creatures[0], 'portrait');
   const swk = stage.querySelector('#saveweek'); if (swk) swk.onclick = downloadWeekCard;
+  stage.querySelectorAll('[data-tel]').forEach((b) => { b.onclick = () => setTelemetry(b.dataset.tel === 'on'); });
   const gs = stage.querySelector('#goalsel'); if (gs) gs.onchange = async () => { const [type, target] = gs.value.split(':'); try { await fetch('/api/me', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ goal: { type, target: Number(target) } }) }); } catch {} poll(true); };
   const skc = stage.querySelector('#skcard'); if (skc) skc.onclick = () => downloadSkillCard(latest.skills.list.find((s) => s.key === skc.dataset.skill));
   const recent = stage.querySelector('#recent'); if (recent) reconcile(recent, stripList(), (c) => tileHTML(c), tileKey);
@@ -2364,6 +2380,9 @@ function isoWeekOf(ms) {
   const wk = 1 + Math.floor(Math.round((t - new Date(t.getFullYear(), 0, 1)) / 86400000) / 7);
   return { year: t.getFullYear(), week: wk };
 }
+// agent time: a run's wall-clock length minus the time it waited on you (waitMs,
+// recorded from v1.0; older runs count in full)
+const agentMs = (c) => Math.max(0, (c.durationMs || 0) - (c.waitMs || 0));
 function weekSummary(now) {
   now = now || Date.now();
   const d0 = new Date(now); d0.setHours(0, 0, 0, 0); d0.setDate(d0.getDate() - ((d0.getDay() + 6) % 7));
@@ -2374,13 +2393,16 @@ function weekSummary(now) {
   for (const c of runs) {
     const k = DOMAIN_LABEL[c.domainKey] ? c.domainKey : 'wisp', b = by[k] || (by[k] = { key: k, label: DOMAIN_LABEL[k], runs: 0, ms: 0 });
     b.runs++;
-    if (!isOpenRun(c)) { b.ms += c.durationMs || 0; ms += c.durationMs || 0; }
+    if (!isOpenRun(c)) { const a = agentMs(c); b.ms += a; ms += a; }
   }
+  // the not-code share counts only runs typed from what the agent did (tools,
+  // files, commands), the same rule as scripts/stats.mjs; prompt-typed runs are left out
+  const typed = runs.filter((c) => c.domainSource === 'activity');
   const order = (a, b) => b.runs - a.runs || b.ms - a.ms || a.label.localeCompare(b.label);
   const types = Object.values(by).filter((t) => t.key !== 'cog').sort(order).concat(by.cog ? [by.cog] : []);
   const top = runs.filter((c) => !isOpenRun(c)).sort(byRarest)[0] || null;
   const iw = isoWeekOf(now);
-  return { from, to, runs: runs.length, ms, types, top, nonCode: runs.filter((c) => c.domainKey !== 'cog').length, ...iw };
+  return { from, to, runs: runs.length, ms, types, top, typed: typed.length, nonCode: typed.filter((c) => c.domainKey !== 'cog').length, ...iw };
 }
 const hrs = (ms) => { const h = ms / 3600000; return h >= 10 ? Math.round(h) + ' h' : h >= 1 ? (Math.round(h * 10) / 10) + ' h' : Math.round(ms / 60000) + ' min'; };
 function weekShareHTML() {
@@ -2402,7 +2424,7 @@ function buildWeekCardSVG(w) {
     const firstCode = rows.findIndex((t) => t.key === 'cog');
     body = `${T(80, 330, 120, '#f4f2ff', fmtN(w.runs), { a: 'start', serif: 1 })}${T(80, 380, 24, '#9aa3bf', w.runs === 1 ? 'agent run' : 'agent runs', { a: 'start', ls: 2 })}
       ${T(470, 330, 120, '#f4f2ff', hrs(w.ms).replace(' ', ''), { a: 'start', serif: 1 })}${T(470, 380, 24, '#9aa3bf', 'of agent time', { a: 'start', ls: 2 })}
-      ${T(80, 470, 22, '#8d96b3', 'BY TYPE OF WORK', { a: 'start', ls: 5, w: 700 })}${T(W - 80, 470, 22, '#8d96b3', w.nonCode ? Math.round((100 * w.nonCode) / w.runs) + '% NOT CODE' : 'ALL CODE', { a: 'end', ls: 4, w: 700 })}
+      ${T(80, 470, 22, '#8d96b3', 'BY TYPE OF WORK', { a: 'start', ls: 5, w: 700 })}${w.typed ? T(W - 80, 470, 22, '#8d96b3', w.nonCode ? Math.round((100 * w.nonCode) / w.typed) + '% NOT CODE' : 'ALL CODE', { a: 'end', ls: 4, w: 700 }) + T(W - 80, 500, 17, '#646d88', `of the ${plural(w.typed, 'run')} typed from what the agent did`, { a: 'end' }) : ''}
       ${rows.map((t, i) => { const y = y0 + i * rh + (firstCode > 0 && i >= firstCode ? 18 : 0), col = (ART_PAL[t.key] || ART_PAL.wisp).glow, bw = Math.max(10, (450 * t.runs) / max);
         return `${firstCode > 0 && i === firstCode ? `<path d="M80 ${y - 30}H${W - 80}" stroke="#ffffff" stroke-opacity=".1" stroke-width="2"/>` : ''}${T(80, y + 30, 30, '#f4f2ff', t.label, { a: 'start', w: 600 })}<rect x="330" y="${y + 6}" width="450" height="32" rx="16" fill="#ffffff" fill-opacity=".05"/><rect x="330" y="${y + 6}" width="${F(bw)}" height="32" rx="16" fill="${col}"/>${T(W - 80, y + 31, 26, '#d8dcea', `${plural(t.runs, 'run')} · ${t.ms ? hrs(t.ms) : '0 min'}`, { a: 'end', w: 600 })}`; }).join('')}`;
     if (w.top) {

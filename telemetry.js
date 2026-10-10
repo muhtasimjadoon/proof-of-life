@@ -2,8 +2,10 @@
 // Zero dependencies. Sent by the server process only (never by the hooks), at
 // most once per ISO week. What it sends and never sends: TELEMETRY.md.
 //
-//   data/telemetry.json  { enabled, installId, decidedAt, lastSentWeek, lastSentAt }
-//   written by `node install.mjs` (asks once) or `node install.mjs --telemetry=on|off`
+//   data/telemetry.json  { enabled, installId, decidedAt, via, lastSentWeek, lastSentAt }
+//   written by the installer (asks once in a terminal), by the yes/no on the page
+//   (POST /api/telemetry, this machine only), or by the hooks-free command
+//   `npx proof-of-life telemetry on|off` (`node cli.mjs telemetry on|off` in a clone)
 //   POL_TELEMETRY=off        always off, whatever the file says
 //   POL_TELEMETRY_URL=<url>  where to send (else TELEMETRY_URL below; empty = never send)
 
@@ -52,10 +54,10 @@ function writeFile(dataDir, obj) {
   fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n');
   fs.renameSync(tmp, f);
 }
-// record a yes/no (installer). Keeps the install ID; a yes creates one if missing.
-function setChoice(dataDir, enabled) {
+// record a yes/no. via: 'install' | 'command' | 'page'. Keeps the install ID; a yes creates one if missing.
+function setChoice(dataDir, enabled, via) {
   const cur = readFile(dataDir);
-  const next = Object.assign({}, cur, { enabled: !!enabled, decidedAt: Date.now() });
+  const next = Object.assign({}, cur, { enabled: !!enabled, decidedAt: Date.now(), via: ['install', 'command', 'page'].includes(via) ? via : 'install' });
   if (enabled && !/^[0-9a-f]{32}$/.test(cur.installId || '')) next.installId = newInstallId();
   writeFile(dataDir, next);
   return next;
@@ -64,16 +66,32 @@ function setChoice(dataDir, enabled) {
 function endpoint() { return String(process.env.POL_TELEMETRY_URL != null ? process.env.POL_TELEMETRY_URL : TELEMETRY_URL).trim(); }
 function envOff() { return /^(off|0|false|no)$/i.test(String(process.env.POL_TELEMETRY || '').trim()); }
 
+// how this copy was installed, so the page names a command that exists for you:
+// 'plugin' (Claude Code plugin), 'npx' (npm or npx copy) or 'clone' (a git clone)
+function installKind(root = __dirname) {
+  const p = path.resolve(root) + path.sep, plug = process.env.CLAUDE_PLUGIN_ROOT;
+  if ((plug && p.startsWith(path.resolve(plug) + path.sep)) || /[\\/]\.claude[\\/]plugins[\\/]/.test(p)) return 'plugin';
+  return require('./paths.js').isManaged(root) ? 'npx' : 'clone';
+}
+// the command that changes the answer and leaves the hooks alone
+function changeCommand(on, kind = installKind()) {
+  return (kind === 'clone' ? 'node cli.mjs telemetry ' : 'npx proof-of-life telemetry ') + (on ? 'on' : 'off');
+}
+
 // what the page shows: on/off, why, and how to change it
-function status(dataDir) {
+function status(dataDir, kind = installKind()) {
   const f = readFile(dataDir);
   const on = f.enabled === true && !envOff();
+  const where = f.via === 'page' ? 'on this page' : f.via === 'command' ? 'with a command' : 'at install';
   return {
     enabled: on,
-    reason: envOff() ? 'POL_TELEMETRY=off' : f.enabled === true ? 'you said yes at install' : f.enabled === false ? 'you said no at install' : 'never asked, so off by default',
+    decided: typeof f.enabled === 'boolean',
+    reason: envOff() ? 'POL_TELEMETRY=off' : f.enabled === true ? `you said yes ${where}` : f.enabled === false ? `you said no ${where}` : 'never asked, so off by default',
+    envOff: envOff(),
     endpointSet: !!endpoint(),
     lastSentWeek: f.lastSentWeek || null,
-    change: on ? 'node install.mjs --telemetry=off' : envOff() ? 'unset POL_TELEMETRY, then node install.mjs --telemetry=on' : 'node install.mjs --telemetry=on',
+    install: kind,
+    change: envOff() ? 'unset POL_TELEMETRY, then ' + changeCommand(true, kind) : changeCommand(!on, kind),
     doc: 'TELEMETRY.md',
   };
 }
@@ -146,4 +164,4 @@ function start(dataDir, getCreatures, log = console) {
   };
 }
 
-module.exports = { TELEMETRY_URL, SPECIES_KEYS, isoWeek, buildHeartbeat, status, setChoice, readFile, start, newInstallId, appVersion };
+module.exports = { TELEMETRY_URL, SPECIES_KEYS, isoWeek, buildHeartbeat, status, setChoice, installKind, changeCommand, readFile, start, newInstallId, appVersion };

@@ -4,11 +4,16 @@ Proof of Life can send one small, counts-only heartbeat a week, so we can tell h
 
 ## How it is turned on and off
 
-- `node install.mjs` asks once in a terminal: `Share usage counts? [y/N]`. Enter or anything but `y` means no. Without a terminal (scripts, CI) it never asks and stays off.
-- Change your answer any time: `node install.mjs --telemetry=on` or `node install.mjs --telemetry=off`.
+- The terminal installer (`npx proof-of-life` or `node cli.mjs` in a clone) asks once: `Share usage counts? [y/N]`. Enter or anything but `y` means no. Without a terminal (scripts, CI) it never asks and stays off.
+- The Claude Code plugin has no terminal step, so the page asks instead: until you answer, Home shows **Share anonymous weekly usage counts?** with **Yes, share counts** and **No**. Either answer is stored and the question never comes back. The page can only do this from this machine (a same-origin request to `POST /api/telemetry`).
+- Change your answer any time, without touching your hooks:
+  - npx or plugin install: `npx proof-of-life telemetry on` or `npx proof-of-life telemetry off`
+  - git clone: `node cli.mjs telemetry on` or `node cli.mjs telemetry off`
+  - or the Turn on / Turn off button under **How it works → Provenance**.
+  `telemetry status` prints the current answer. (`node install.mjs --telemetry=on|off` still works in a clone, but it also rewrites your global hooks, so plugin users should not use it.)
 - `POL_TELEMETRY=off` in the server's environment always turns it off, whatever you answered.
 - The page shows the current state under **How it works → Provenance**: "Usage stats: on/off", why, and the command to change it.
-- Your answer and a random install ID live in `data/telemetry.json` on your machine (git-ignored). Delete that file and it is as if you were never asked: off.
+- Your answer, where you gave it, and a random install ID live in `telemetry.json` in your data folder (`data/` in a clone, `~/.proof-of-life/data` for npx and the plugin; git-ignored). Delete that file and it is as if you were never asked: off.
 
 ## When it is sent
 
