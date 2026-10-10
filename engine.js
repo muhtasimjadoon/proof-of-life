@@ -92,7 +92,7 @@ const CODE_EXT = ['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.py', '.go', '.
 const TEXT_EXT = ['.md', '.mdx', '.txt', '.docx', '.rtf'];
 const DESIGN_EXT = ['.fig', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.psd', '.ai', '.sketch'];
 const VIDEO_EXT = ['.mp4', '.mov', '.webm', '.gif', '.mp3', '.wav'];
-const CODE_CMDS = ['npm', 'npx', 'node', 'git', 'python', 'python3', 'pip', 'cargo', 'go', 'make', 'docker', 'tsc', 'pnpm', 'yarn', 'bun', 'pytest', 'jest', 'dotnet', 'mvn', 'gradle'];
+const CODE_CMDS = ['npm', 'npx', 'node', 'git', 'python', 'python3', 'pip', 'cargo', 'go', 'make', 'docker', 'tsc', 'pnpm', 'yarn', 'bun', 'pytest', 'jest', 'dotnet', 'mvn', 'gradle', 'pkg-test'];
 const VIDEO_CMDS = ['ffmpeg', 'ffprobe', 'remotion', 'higgs'];
 
 function domainFromActivity(activity) {
@@ -123,6 +123,25 @@ function domainFromActivity(activity) {
   let best = null, bestScore = 0;
   for (const k of Object.keys(s)) if (s[k] > bestScore) { bestScore = s[k]; best = k; }
   return best;
+}
+
+// Mythic, the top tier. A solo operator reaches it only from real run data,
+// decided at hatch and signed with the rest of the run (so it can only ever be
+// earned by new runs; every older creature keeps the tier it was signed with):
+//   Legion:  a run of 2 hours or more (not a session left open for a day) that
+//            dispatched 10 or more subagents and did not fail
+//   Devoted: the first run of the 30th (60th, 90th...) day in a row you ran agents
+// Cross-feeding with another operator also breeds Mythics (see breedCreature).
+const MYTHIC = { tier: 'Mythic', chip: '#ff7bd0', index: 5 };
+const MYTHIC_RUN_MS = 2 * 60 * 60 * 1000;
+const MYTHIC_SUBAGENTS = 10;
+const MYTHIC_STREAK = 30;
+function mythicReason(run, durationMs) {
+  if (!run || run.error) return null;
+  if (durationMs >= MYTHIC_RUN_MS && durationMs <= Skills.OPEN_SESSION_MS && (run.subagents || 0) >= MYTHIC_SUBAGENTS) return 'Legion';
+  const d = Number(run.streakDays) || 0;
+  if (run.firstOfDay && d >= MYTHIC_STREAK && d % MYTHIC_STREAK === 0) return 'Devoted';
+  return null;
 }
 
 function rarityFor(durationMs) {
@@ -178,7 +197,9 @@ function computeCreature(run) {
   const domainSource = actDomain ? 'activity' : (run.domainSource || 'prompt');
   const toolCalls = run.activity && run.activity.toolCalls != null ? run.activity.toolCalls : null;
   const species = speciesByKey(domainKey);
-  const rarity = rarityFor(durationMs);
+  // only a live hatch may mint a Mythic: migrations, samples and demos never do
+  const mythic = run.allowMythic ? mythicReason(run, durationMs) : null;
+  const rarity = mythic ? Object.assign({ maxMs: Infinity }, MYTHIC) : rarityFor(durationMs);
   const bornAt = run.endedAt || Date.now();
   const tzo = run.tzOffset != null && isFinite(run.tzOffset) ? Math.max(-840, Math.min(840, Math.round(run.tzOffset))) : null;
   const hour = localHour(bornAt, tzo);
@@ -192,6 +213,7 @@ function computeCreature(run) {
 
   // traits read off the real signals of the run
   const traits = [];
+  if (mythic) traits.push(mythic);               // Legion (2h+, 10+ subagents) or Devoted (30 days in a row)
   if (hour < 5) traits.push('Nightshift');       // ran while the world slept
   if (rarity.index >= 3) traits.push('Marathon'); // a long, hard run
   if (subagents >= 5) traits.push('Swarm');       // you commanded a fleet
@@ -297,15 +319,20 @@ function xpGain(justCompleted) {
   return 50 + (justCompleted.rarity.index * 25); // a rarer run raises the herd more
 }
 
-// a single 0-10 flex number for the Proof of Life Board
+// Power: an uncapped number for the Board. Every real run adds points for the
+// machine time it took (log-scaled, a run counts at most 4 hours) and the rarity
+// it hatched; a healed survivor adds a little. Sessions left open add nothing.
+// See Skills.runPoints. weekScore is the same points from the last 7 days.
 function operatorScore(creatures) {
-  if (!creatures.length) return 0;
-  const hours = creatures.reduce((a, c) => a + (isOpenSession(c) ? 0 : (c.durationMs || 0)), 0) / 3600000;
-  const rarity = creatures.reduce((a, c) => a + c.rarity.index, 0);
-  const survivors = creatures.filter((c) => c.status === 'healed').length;
-  const legendary = creatures.filter((c) => c.rarity.index >= 4).length;
-  const raw = hours * 0.5 + rarity * 0.3 + survivors * 0.8 + legendary * 1.2 + creatures.length * 0.15;
-  return Math.round((10 * raw / (raw + 9)) * 10) / 10; // diminishing curve, asymptotes to 10
+  let s = 0;
+  for (const c of creatures) s += Skills.runPoints(c);
+  return s;
+}
+function weekScore(creatures, now) {
+  const from = (now || Date.now()) - 7 * 86400000;
+  let s = 0;
+  for (const c of creatures) if (c.bornAt >= from) s += Skills.runPoints(c);
+  return s;
 }
 
 // ---- cross-breeding: a hybrid neither operator could make alone -----------
@@ -316,7 +343,8 @@ function _rgb(h) { h = h.replace('#', ''); if (h.length === 3) h = h.split('').m
 function _hex(r, g, b) { return '#' + [r, g, b].map((x) => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, '0')).join(''); }
 function blend(a, b, t) { const x = _rgb(a), y = _rgb(b); return _hex(x[0] + (y[0] - x[0]) * t, x[1] + (y[1] - x[1]) * t, x[2] + (y[2] - x[2]) * t); }
 
-const SIX = ['Common', 'Uncommon', 'Rare', 'Epic', 'Mythic', 'Legendary'];
+// Mythic is the top tier everywhere (it used to sit below Legendary here)
+const SIX = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Mythic'];
 const SIX_CHIP = { Common: '#8b90a0', Uncommon: '#6ee7a5', Rare: '#67a8f0', Epic: '#b28dff', Mythic: '#ff7bd0', Legendary: '#f5c451' };
 const HYB_A = ['Chrono', 'Void', 'Echo', 'Gloam', 'Ember', 'Cinder', 'Umbra', 'Aether', 'Rune', 'Moss', 'Hollow', 'Glass', 'Iron', 'Dusk', 'Ashen', 'Verdant', 'Cobalt', 'Wyrm', 'Frost'];
 const HYB_B = ['Sprout', 'Mender', 'Wyrm', 'Guardian', 'Sprite', 'Hag', 'Wraith', 'Moth', 'Seraph', 'Golem', 'Djinn', 'Whelp', 'Kin', 'Warden', 'Bloom', 'Fang', 'Oracle', 'Husk'];
@@ -326,7 +354,8 @@ function breedCreature(a, b, handleA, handleB, domain) {
   const pair = [handleA, handleB].sort();
   const seed = hashString(pair.join('&') + '|' + domain + '|' + a.seed + '|' + b.seed);
   const rng = mulberry32(seed);
-  const idx = Math.min(5, Math.max(sixIndex(a.rarity.tier), sixIndex(b.rarity.tier)) + 1);
+  // a cross-fed hybrid is always Mythic: no single operator can make one
+  const idx = 5;
   const tier = SIX[idx];
   const name = HYB_A[Math.floor(rng() * HYB_A.length)] + ' ' + HYB_B[Math.floor(rng() * HYB_B.length)];
   const strong = sixIndex(a.rarity.tier) >= sixIndex(b.rarity.tier) ? a : b;
@@ -385,6 +414,13 @@ module.exports = {
   xpToNext,
   xpGain,
   operatorScore,
+  weekScore,
+  runPoints: Skills.runPoints,
+  MYTHIC,
+  MYTHIC_RUN_MS,
+  MYTHIC_SUBAGENTS,
+  MYTHIC_STREAK,
+  mythicReason,
   LEVEL_LABELS,
   breedCreature,
 };

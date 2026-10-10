@@ -11,9 +11,23 @@ const path = require('path');
 const zlib = require('zlib');
 const crypto = require('crypto');
 const {
-  computeCreature, detectDomain, SPECIES, operatorScore, levelFor, xpGain, hashString, mulberry32, breedCreature,
-  durationLabel, isOpenSession, HERD_WINDOW, Skills,
+  computeCreature, detectDomain, SPECIES, RARITY, operatorScore, weekScore, levelFor, xpGain, hashString, mulberry32, breedCreature,
+  durationLabel, isOpenSession, HERD_WINDOW, Skills, MYTHIC_RUN_MS, MYTHIC_SUBAGENTS, MYTHIC_STREAK,
 } = require('./engine');
+
+// ---- build identity ------------------------------------------------------
+// The page is read from disk on every request, so after an update the browser
+// can run newer code than this process. /api/version lets the page notice and
+// ask for a restart instead of quietly showing empty panels.
+const API_LEVEL = 2; // bump when the page needs something new from the API
+const CODE_FILES = ['server.js', 'engine.js', 'skills.js', 'public/variants.js'];
+function codeHash() {
+  const h = crypto.createHash('sha256');
+  for (const f of CODE_FILES) { try { h.update(fs.readFileSync(path.join(__dirname, f))); } catch { h.update('missing:' + f); } }
+  return h.digest('hex').slice(0, 12);
+}
+const BUILD = codeHash();
+const BOOT = Date.now().toString(36); // ETags carry it, so a restart never answers 304 with an older body
 
 const PORT = process.env.POL_PORT ? Number(process.env.POL_PORT) : 4855;
 // privacy first: only this machine can reach the server unless you opt in
@@ -76,11 +90,14 @@ function saveConfig() {
   try { writeAtomic(CONFIG_FILE, JSON.stringify(config, null, 2)); }
   catch (e) { console.error('[pol] config write failed:', e.message); }
 }
-function goalOf() {
-  const g = config.goal || {};
+// the daily goal: one you picked, or by default your own median day (so a
+// 50-run day never sits against a target of 3, and the ring means something)
+function goalOf(medianDay) {
+  const g = config.goal;
+  if (!g || g.type === 'auto') return { type: 'runs', target: Math.max(3, Math.min(100, Math.round(Number(medianDay) || 0) || 3)), auto: true };
   const type = g.type === 'minutes' ? 'minutes' : 'runs';
   const target = Math.max(1, Math.min(type === 'runs' ? 100 : 1440, Math.floor(Number(g.target) || (type === 'runs' ? 3 : 30))));
-  return { type, target };
+  return { type, target, auto: false };
 }
 
 // ---- signed attestations (proof of work life) ----------------------------
@@ -302,7 +319,9 @@ function layEgg(op, { id, prompt, domain, tzOffset }) {
 function mergeCounts(a, b) {
   if (!a) return b; if (!b) return a;
   const m = (x, y) => { const r = Object.assign({}, x || {}); for (const [k, v] of Object.entries(y || {})) r[k] = (r[k] || 0) + v; return r; };
-  return { toolCalls: (a.toolCalls || 0) + (b.toolCalls || 0), tools: m(a.tools, b.tools), exts: m(a.exts, b.exts), cmds: m(a.cmds, b.cmds) };
+  const out = { toolCalls: (a.toolCalls || 0) + (b.toolCalls || 0), tools: m(a.tools, b.tools), exts: m(a.exts, b.exts), cmds: m(a.cmds, b.cmds) };
+  if (a.toolErrors != null || b.toolErrors != null) out.toolErrors = (a.toolErrors || 0) + (b.toolErrors || 0);
+  return out;
 }
 function tickSubagent(op, { id, activity }) {
   const rid = cleanRunId(id);
@@ -378,7 +397,20 @@ function cleanActivity(a) {
   const ext = (k) => { k = k.toLowerCase(); return Skills.KNOWN_EXTS.has(k) ? k : 'other'; };
   const cmd = (k) => { k = k.toLowerCase(); return Skills.KNOWN_CMDS.has(k) ? k : 'other'; };
   const toolCalls = Math.max(0, Math.min(100000, Math.floor(Number(a.toolCalls) || 0)));
-  return { toolCalls, tools: counts(a.tools, tool), exts: counts(a.exts, ext), cmds: counts(a.cmds, cmd) };
+  const out = { toolCalls, tools: counts(a.tools, tool), exts: counts(a.exts, ext), cmds: counts(a.cmds, cmd) };
+  // newer hooks also count failed tool results (a number, never the error text)
+  if (a.toolErrors != null && isFinite(Number(a.toolErrors))) out.toolErrors = Math.max(0, Math.min(toolCalls, Math.floor(Number(a.toolErrors) || 0)));
+  return out;
+}
+// days in a row this operator has run agents, counting today, and whether a run
+// now would be today's first: the Devoted path to Mythic
+function streakInfo(op, now, tz) {
+  const t = tz == null ? undefined : tz;
+  const days = new Set(op.creatures.map((c) => Skills.dayIndex(Skills.dayKey(c.bornAt, t))));
+  const today = Skills.dayIndex(Skills.dayKey(now, t));
+  let n = 1;
+  for (let d = today - 1; days.has(d); d--) n++;
+  return { streakDays: n, firstOfDay: !days.has(today) };
 }
 function hatch(op, { id, error, subagents, activity, tzOffset }) {
   const rid = cleanRunId(id);
@@ -395,6 +427,7 @@ function hatch(op, { id, error, subagents, activity, tzOffset }) {
     domainKey: egg.domainKey, domainSource: 'prompt', activity: act,
     error: !!error, subagents: subagents != null ? Math.max(0, Math.min(1000, Math.floor(Number(subagents) || 0))) : (egg.subagents || 0),
     tzOffset: tz,
+    allowMythic: true, ...streakInfo(op, now, tz),
   };
   const creature = computeCreature(run);
   attest(creature, op.handle);
@@ -428,19 +461,23 @@ function statsOf(op) {
   };
 }
 function meOf(op) {
-  const s = statsOf(op);
+  const s = statsOf(op), now = Date.now();
   return {
     handle: op.handle, displayName: op.displayName, accent: op.accent, sample: !!op.sample,
-    score: operatorScore(op.creatures), runs: op.creatures.length, hours: s.machineHours,
+    // score: all-time Power (uncapped); week: the same points from the last 7 days
+    score: operatorScore(op.creatures), week: weekScore(op.creatures, now),
+    weekRuns: op.creatures.filter((c) => c.bornAt >= now - 7 * 86400000).length,
+    runs: op.creatures.length, hours: s.machineHours,
     survivors: op.creatures.filter((c) => c.status === 'healed').length,
     scars: op.creatures.filter((c) => c.features && c.features.scar).length,
     topSpecies: topSpecies(op.creatures), rarest: s.rarest,
   };
 }
 function board() {
+  // ranked by this week's points (a race anyone can win this week), then all-time Power
   const rows = visibleOps().filter((o) => o.creatures.length)
     .map((o) => Object.assign({ you: o.handle === config.handle }, meOf(o)))
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => b.week - a.week || b.score - a.score);
   return rows.map((r, i) => Object.assign({ rank: i + 1 }, r));
 }
 function profile(handle) {
@@ -457,9 +494,9 @@ function skillsOf(op, tz) {
   const hit = skillsMemo.get(op.handle);
   if (hit && hit.key === key) return hit.value;
   const r = Skills.computeOperatorSkills(op.creatures, { tz: tz == null ? undefined : tz, now });
-  const goal = goalOf();
+  const goal = goalOf(r.engagement.medianDay);
   const progress = goal.type === 'runs' ? r.engagement.today.runs : r.engagement.today.minutes;
-  r.engagement.goal = { type: goal.type, target: goal.target, progress, met: progress >= goal.target };
+  r.engagement.goal = { type: goal.type, target: goal.target, auto: goal.auto, median: r.engagement.medianDay, progress, met: progress >= goal.target };
   skillsMemo.set(op.handle, { key, value: r });
   return r;
 }
@@ -559,14 +596,41 @@ function serveStatic(req, res) {
   if (!file.startsWith(PUBLIC_DIR + path.sep)) { res.writeHead(403); return res.end('no'); }
   serveFile(res, file);
 }
+// resolves to the parsed object, {} for an empty body, or null when the body is
+// not a JSON object (the caller answers 400 instead of acting on garbage)
 function readBody(req) {
   return new Promise((resolve) => {
     let b = '', done = false;
     const fin = (v) => { if (!done) { done = true; resolve(v); } };
-    req.on('data', (d) => { b += d; if (b.length > 64 * 1024) { req.destroy(); fin({}); } });
-    req.on('end', () => { try { const v = b ? JSON.parse(b) : {}; fin(v && typeof v === 'object' && !Array.isArray(v) ? v : {}); } catch { fin({}); } });
-    req.on('error', () => fin({}));
+    req.on('data', (d) => { b += d; if (b.length > 64 * 1024) { req.destroy(); fin(null); } });
+    req.on('end', () => { try { const v = b ? JSON.parse(b) : {}; fin(v && typeof v === 'object' && !Array.isArray(v) ? v : null); } catch { fin(null); } });
+    req.on('error', () => fin(null));
   });
+}
+
+// ---- request guards ------------------------------------------------------
+// Bound to loopback, the API only answers to a loopback Host header, so a web
+// page that rebinds its own domain to 127.0.0.1 can neither read nor write.
+const LOOPBACK_NAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+const LOOPBACK_BIND = HOST === '127.0.0.1' || HOST === 'localhost' || HOST === '::1';
+function hostOk(req) {
+  if (!LOOPBACK_BIND) return true; // a shared or hosted server answers to its own name; tokens guard it
+  const h = String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '');
+  return LOOPBACK_NAMES.has(h);
+}
+// A request that changes state must come from this page or from a hook. Browsers
+// send Origin on every POST; the hooks send none. Requiring a JSON content type
+// also means another site would need a CORS preflight, which this server never grants.
+function writeOk(req) {
+  const o = req.headers.origin;
+  if (o != null) {
+    let host = null;
+    try { host = new URL(o).host.toLowerCase(); } catch {}
+    if (!host || host !== String(req.headers.host || '').toLowerCase()) return { code: 403, error: 'cross-origin request refused' };
+  }
+  if (String(req.headers['sec-fetch-site'] || '') === 'cross-site') return { code: 403, error: 'cross-site request refused' };
+  if (!/^application\/json\s*(;|$)/i.test(String(req.headers['content-type'] || ''))) return { code: 415, error: 'send JSON with Content-Type: application/json' };
+  return null;
 }
 function send(req, res, code, body, headers) {
   const h = Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache' }, headers || {});
@@ -594,11 +658,17 @@ function rateLimited(req, max, windowMs) {
 }
 const MAX_OPERATORS = Number(process.env.POL_MAX_OPERATORS) || 1000;
 
+// the real thresholds the page needs to say what a running egg will become
+const RULES = {
+  rarity: RARITY.map((r) => ({ tier: r.tier, maxMs: isFinite(r.maxMs) ? r.maxMs : null })),
+  mythic: { runMs: MYTHIC_RUN_MS, subagents: MYTHIC_SUBAGENTS, streak: MYTHIC_STREAK },
+  minHatchMs: MIN_HATCH_MS, openSessionMs: Skills.OPEN_SESSION_MS,
+};
 function stateView(op, tz) {
   const sk = skillsOf(op, tz);
   const { engagement, ...skills } = sk;
   return {
-    rev,
+    rev, api: API_LEVEL, build: BUILD, sxv: Skills.SXV, rules: RULES,
     eggs: Object.values(op.eggs).map((e) => ({ id: e.id, startedAt: e.startedAt, domainKey: e.domainKey, subagents: e.subagents || 0 })),
     creatures: op.creatures.slice().sort((a, b) => b.bornAt - a.bornAt),
     stats: statsOf(op), me: meOf(op),
@@ -613,12 +683,16 @@ const server = http.createServer(async (req, res) => {
   const tz = cleanTz(q.get('tz'));
 
   if (url === '/health') return json(res, 200, { ok: true, operators: Object.keys(state.operators).length });
+  if (url.startsWith('/api/') && !hostOk(req)) return json(res, 403, { error: 'unexpected Host header' });
+  if (req.method === 'POST') { const bad = writeOk(req); if (bad) return json(res, bad.code, { error: bad.error }); }
+  if (url === '/api/version') { const disk = codeHash(); return json(res, 200, { api: API_LEVEL, build: BUILD, disk, stale: disk !== BUILD, sxv: Skills.SXV, maxLevel: Skills.MAX_LEVEL, skills: Skills.SKILLS.length }); }
 
   // onboarding for a new operator on a hosted server -> returns their token
   if (req.method === 'POST' && url === '/api/register') {
     if (rateLimited(req, 5, 60 * 60 * 1000)) return json(res, 429, { error: 'too many registrations, try later' });
     if (Object.keys(state.operators).length >= MAX_OPERATORS) return json(res, 503, { error: 'operator limit reached' });
     const body = await readBody(req);
+    if (!body) return json(res, 400, { error: 'body must be a JSON object' });
     if (!body.handle || typeof body.handle !== 'string') return json(res, 400, { error: 'handle required' });
     const h = cleanHandle(body.handle);
     if (!h || RESERVED.has(h)) return json(res, 400, { error: 'handle must use letters, numbers or _' });
@@ -634,13 +708,14 @@ const server = http.createServer(async (req, res) => {
     const op = resolveOp(req, null);
     if (!op) return json(res, 401, { error: 'token required' });
     const day = Skills.dayKey(Date.now(), tz == null ? undefined : tz);
-    if (url === '/api/state') return cached(req, res, `s${rev}-${op.handle}-${tz}-${day}`, () => stateView(op, tz));
-    if (url === '/api/skills') return cached(req, res, `k${rev}-${op.handle}-${tz}-${day}`, () => { const { engagement, ...skills } = skillsOf(op, tz); return { skills, engagement }; });
+    if (url === '/api/state') return cached(req, res, `s${rev}-${BOOT}-${op.handle}-${tz}-${day}`, () => stateView(op, tz));
+    if (url === '/api/skills') return cached(req, res, `k${rev}-${BOOT}-${op.handle}-${tz}-${day}`, () => { const { engagement, ...skills } = skillsOf(op, tz); return { skills, engagement }; });
     return json(res, 200, meOf(op));
   }
   if (url === '/api/me' && req.method === 'POST') {
     if (!isLocal(req)) return json(res, 403, { error: 'local only' });
     const body = await readBody(req);
+    if (!body) return json(res, 400, { error: 'body must be a JSON object' });
     // local rename of the default operator identity
     if (body.handle != null) {
       const newH = cleanHandle(body.handle);
@@ -654,14 +729,19 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if (typeof body.displayName === 'string' && body.displayName.trim()) { config.displayName = body.displayName.trim().slice(0, 40); const op = ensureOp(config.handle); op.displayName = config.displayName; }
-    if (body.goal && typeof body.goal === 'object') { config.goal = { type: body.goal.type === 'minutes' ? 'minutes' : 'runs', target: Number(body.goal.target) }; config.goal = goalOf(); }
+    if (body.goal && typeof body.goal === 'object') {
+      // 'auto' follows your median day; anything else is a goal you picked
+      if (body.goal.type === 'auto') delete config.goal;
+      else { config.goal = { type: body.goal.type === 'minutes' ? 'minutes' : 'runs', target: Number(body.goal.target) }; const g = goalOf(); config.goal = { type: g.type, target: g.target }; }
+    }
     saveConfig(); saveState();
-    return json(res, 200, { ok: true, me: meOf(ensureOp(config.handle)), goal: goalOf() });
+    const me = ensureOp(config.handle);
+    return json(res, 200, { ok: true, me: meOf(me), goal: skillsOf(me, null).engagement.goal });
   }
-  if (url === '/api/board') return cached(req, res, `b${rev}`, () => ({ board: board(), samples: SHOW_SAMPLES }));
+  if (url === '/api/board') return cached(req, res, `b${rev}-${BOOT}-${Skills.dayKey(Date.now())}`, () => ({ board: board(), samples: SHOW_SAMPLES }));
   if (url === '/api/pubkey') return json(res, 200, { alg: 'ed25519', publicKey: keys.pubPem, fingerprint: pubFingerprint(), signed: Object.values(state.operators).reduce((a, o) => a + o.creatures.length, 0) + Object.keys(state.breeds || {}).length });
   if (url === '/api/verify') return json(res, 200, verifyCreature(findCreatureById(q.get('id'))));
-  if (url === '/api/bestiary') return cached(req, res, `x${rev}`, bestiary);
+  if (url === '/api/bestiary') return cached(req, res, `x${rev}-${BOOT}`, bestiary);
   if (url === '/api/breed') return json(res, 200, breedPair(q.get('a'), q.get('b')));
   if (url === '/api/profile') {
     if (!isLocal(req) && !opByToken(req.headers['x-pol-token'])) return json(res, 401, { error: 'token required' });
@@ -669,19 +749,13 @@ const server = http.createServer(async (req, res) => {
     return p ? json(res, 200, p) : json(res, 404, { error: 'no such operator' });
   }
 
-  if (req.method === 'POST' && url === '/api/run-start') {
-    const body = await readBody(req); const op = resolveOp(req, body);
+  if (req.method === 'POST' && (url === '/api/run-start' || url === '/api/run-subagent' || url === '/api/run-end')) {
+    const body = await readBody(req);
+    if (!body) return json(res, 400, { error: 'body must be a JSON object' }); // never lay an anonymous egg for garbage
+    const op = resolveOp(req, body);
     if (!op) return json(res, 401, { error: 'unknown operator' });
-    return json(res, 200, { ok: true, egg: layEgg(op, body) });
-  }
-  if (req.method === 'POST' && url === '/api/run-subagent') {
-    const body = await readBody(req); const op = resolveOp(req, body);
-    if (!op) return json(res, 401, { error: 'unknown operator' });
-    return json(res, 200, { ok: true, egg: tickSubagent(op, body) });
-  }
-  if (req.method === 'POST' && url === '/api/run-end') {
-    const body = await readBody(req); const op = resolveOp(req, body);
-    if (!op) return json(res, 401, { error: 'unknown operator' });
+    if (url === '/api/run-start') return json(res, 200, { ok: true, egg: layEgg(op, body) });
+    if (url === '/api/run-subagent') return json(res, 200, { ok: true, egg: tickSubagent(op, body) });
     return json(res, 200, { ok: true, creature: hatch(op, body) });
   }
 
@@ -718,5 +792,5 @@ for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { if (saveTimer) 
 
 server.listen(PORT, HOST, () => {
   console.log(`[pol] Proof of Life live at http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}${HOST === '127.0.0.1' ? ' (this machine only; set POL_HOST to share)' : ''}`);
-  console.log(`[pol] operators: ${visibleOps().length}${SHOW_SAMPLES ? ' (incl. samples)' : ''}, you: @${config.handle}`);
+  console.log(`[pol] operators: ${visibleOps().length}${SHOW_SAMPLES ? ' (incl. samples)' : ''}, you: @${config.handle} · build ${BUILD}`);
 });

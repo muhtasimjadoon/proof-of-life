@@ -1,8 +1,9 @@
 // Reads what the agent actually DID in the turn that just ended, from the
 // Claude Code transcript. Only counts leave this machine: tool names, file
-// extensions from a known list, and the first word of shell commands from a
-// known list. Never prompts, paths, file names, file contents, or command
-// arguments. Anything outside the known lists is sent as 'other'.
+// extensions from a known list, the first word of shell commands from a known
+// list, and how many tool calls came back as errors. Never prompts, paths, file
+// names, file contents, error text or command arguments. Anything outside the
+// known lists is sent as 'other'.
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -35,14 +36,26 @@ export function extLabel(fp) {
   if (!ext) return null;
   return KNOWN_EXTS.has(ext) ? ext : 'other';
 }
-export function cmdLabel(command) {
+const norm = (w) => String(w || '').replace(/\u0000/g, ' ').replace(/^.*[\\/]/, '').toLowerCase().replace(/\.(exe|cmd|bat|ps1)$/, '');
+const RUNNERS = new Set(['npx', 'pnpx', 'bunx']);         // npx jest -> jest
+const PKG = new Set(['npm', 'pnpm', 'yarn', 'bun']);       // npm test, yarn run test:unit -> pkg-test
+function segLabel(seg) {
   // strip quotes so "C:/Program Files/x.exe" -> x.exe, never 'program'
-  const words = String(command).trim().replace(/^["']([^"']*)["']/, (m, p) => p.replace(/\s/g, '\u0000')).split(/\s+/);
+  const words = seg.trim().replace(/^["']([^"']*)["']/, (m, p) => p.replace(/\s/g, '\u0000')).split(/\s+/).filter(Boolean);
   while (words.length && /^\w+=/.test(words[0])) words.shift(); // skip VAR=value prefixes
-  let head = (words[0] || '').replace(/\u0000/g, ' ').replace(/^.*[\\/]/, '').toLowerCase().replace(/\.(exe|cmd|bat|ps1)$/, '');
+  const head = norm(words[0]);
   if (!head) return null;
+  const rest = words.slice(1).filter((w) => !w.startsWith('-')).map(norm);
+  if (RUNNERS.has(head) && rest[0] && KNOWN_CMDS.has(rest[0])) return rest[0];
+  if (PKG.has(head) && (rest[0] === 'exec' || rest[0] === 'dlx') && rest[1] && KNOWN_CMDS.has(rest[1])) return rest[1]; // pnpm exec playwright
+  if (PKG.has(head) && (rest[0] === 'test' || ((rest[0] === 'run' || rest[0] === 'exec') && /^test/.test(rest[1] || '')))) return 'pkg-test';
   return KNOWN_CMDS.has(head) ? head : 'other';
 }
+// one known word (or 'other') per command in a chain: cd app && git push -> cd, git
+export function cmdLabels(command) {
+  return String(command).split(/&&|\|\||;|\|/).slice(0, 8).map(segLabel).filter(Boolean);
+}
+export function cmdLabel(command) { return cmdLabels(command)[0] || null; }
 
 function isPromptEntry(e) {
   if (e.type !== 'user' || e.isMeta || !e.message) return false;
@@ -72,9 +85,14 @@ export function readActivity(transcriptPath, whole) {
     if (whole) i = -1;
     else while (i >= 0 && !isPromptEntry(entries[i])) i--;
     const tools = {}, exts = {}, cmds = {};
-    let toolCalls = 0;
+    let toolCalls = 0, toolErrors = 0;
     for (let j = i + 1; j < entries.length; j++) {
       const e = entries[j];
+      // a failed tool comes back as a tool_result flagged is_error: only the count is kept
+      if (e.type === 'user' && e.message && Array.isArray(e.message.content)) {
+        for (const b of e.message.content) if (b && b.type === 'tool_result' && b.is_error === true) toolErrors++;
+        continue;
+      }
       if (e.type !== 'assistant' || !e.message || !Array.isArray(e.message.content)) continue;
       for (const b of e.message.content) {
         if (b.type !== 'tool_use') continue;
@@ -84,10 +102,10 @@ export function readActivity(transcriptPath, whole) {
         const inp = b.input || {};
         const fp = inp.file_path || inp.notebook_path || inp.path;
         if (typeof fp === 'string') { const ext = extLabel(fp); if (ext) exts[ext] = (exts[ext] || 0) + 1; }
-        if (typeof inp.command === 'string') { const head = cmdLabel(inp.command); if (head) cmds[head] = (cmds[head] || 0) + 1; }
+        if (typeof inp.command === 'string') for (const head of cmdLabels(inp.command)) cmds[head] = (cmds[head] || 0) + 1;
       }
     }
-    return { toolCalls, tools, exts, cmds };
+    return { toolCalls, toolErrors: Math.min(toolErrors, toolCalls), tools, exts, cmds };
   } catch {
     return null;
   }

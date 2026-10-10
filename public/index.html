@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Proof of Life</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
@@ -16,6 +16,7 @@
     </aside>
 
     <main class="main">
+      <div id="banner" class="srv-banner" role="status" hidden></div>
       <header class="topbar">
         <div class="tb-title"><span class="eyebrow" id="tb-eyebrow"></span><h1 id="tb-title"></h1></div>
         <div class="tb-right" id="tb-right"></div>
@@ -27,6 +28,7 @@
   <div id="modal" class="modal" hidden><div class="modal-card" id="modal-card"></div></div>
   <div id="reveal" class="reveal" hidden role="dialog" aria-modal="true" aria-label="A creature hatched"></div>
   <div id="toasts" class="toast-stack" aria-live="polite"></div>
+  <script src="/variants.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
