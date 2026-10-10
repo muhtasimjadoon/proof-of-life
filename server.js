@@ -318,9 +318,40 @@ function layEgg(op, { id, prompt, domain, tzOffset }) {
   // prompts are never stored: older hooks still send one, so classify it and drop it
   op.eggs[eggId] = { id: eggId, startedAt: now, lastSeen: now, domainKey: DOMAIN_KEYS.includes(domain) ? domain : detectDomain(prompt) };
   const tz = cleanTz(tzOffset); if (tz != null) op.eggs[eggId].tzOffset = tz;
+  clearDone(op, eggId);
   saveState();
   return op.eggs[eggId];
 }
+// ---- live status: working / needs your input / done ----------------------
+// Notification hook: the session is waiting on you (a permission prompt or a
+// question). Only a kind from this list is kept, never the message text.
+// Cleared by the next prompt (a fresh egg), a subagent finishing (work moved on)
+// or the Stop that hatches it.
+const WAIT_KINDS = ['permission', 'question', 'input'];
+function notifyEgg(op, { id, kind }) {
+  const egg = findEgg(op, cleanRunId(id));
+  if (!egg) return null; // idle notices after a run ended have no egg: nothing to show
+  const k = WAIT_KINDS.includes(kind) ? kind : 'input';
+  if (egg.waiting === k) { egg.lastSeen = Date.now(); return egg; }
+  egg.waiting = k; egg.waitingAt = Date.now(); egg.lastSeen = egg.waitingAt;
+  saveState();
+  return egg;
+}
+// runs that just ended, kept in memory only (never signed, never on disk), so the
+// egg card can say "done" for a short while after the Stop
+const DONE_KEEP_MS = 10 * 60 * 1000;
+const recentDone = new Map(); // handle -> [{ id, endedAt, domainKey, creatureId, skipped }]
+function markDone(op, entry) {
+  const now = Date.now();
+  const list = (recentDone.get(op.handle) || []).filter((d) => d.id !== entry.id && now - d.endedAt < DONE_KEEP_MS);
+  list.unshift(Object.assign({ endedAt: now }, entry));
+  recentDone.set(op.handle, list.slice(0, 6));
+}
+function clearDone(op, id) {
+  const list = recentDone.get(op.handle);
+  if (list) recentDone.set(op.handle, list.filter((d) => d.id !== id));
+}
+function doneOf(op) { const now = Date.now(); return (recentDone.get(op.handle) || []).filter((d) => now - d.endedAt < DONE_KEEP_MS); }
 function mergeCounts(a, b) {
   if (!a) return b; if (!b) return a;
   const m = (x, y) => { const r = Object.assign({}, x || {}); for (const [k, v] of Object.entries(y || {})) r[k] = (r[k] || 0) + v; return r; };
@@ -335,6 +366,7 @@ function tickSubagent(op, { id, activity }) {
   if (!egg) return null;
   egg.subagents = (egg.subagents || 0) + 1;
   egg.lastSeen = Date.now();
+  delete egg.waiting; delete egg.waitingAt; // work moved on, so the wait is over
   // subagents' own tool calls live in their own transcripts; count them too
   const sub = cleanActivity(activity);
   if (sub && sub.toolCalls) egg.subActivity = cleanActivity(mergeCounts(egg.subActivity, sub));
@@ -430,7 +462,7 @@ function hatch(op, { id, error, subagents, activity, tzOffset }) {
   const now = Date.now();
   if (!egg) return { skipped: true, reason: 'no open egg for this run' };
   const startedAt = egg.startedAt;
-  if (now - startedAt < MIN_HATCH_MS) { delete op.eggs[egg.id]; saveState(); return { skipped: true, reason: 'too quick to hatch' }; }
+  if (now - startedAt < MIN_HATCH_MS) { delete op.eggs[egg.id]; markDone(op, { id: egg.id, domainKey: egg.domainKey, creatureId: null, skipped: true }); saveState(); return { skipped: true, reason: 'too quick to hatch' }; }
   let act = cleanActivity(activity);
   if (egg.subActivity) act = cleanActivity(mergeCounts(act || { toolCalls: 0 }, egg.subActivity));
   const tz = cleanTz(tzOffset) != null ? cleanTz(tzOffset) : (egg.tzOffset != null ? egg.tzOffset : null);
@@ -446,6 +478,7 @@ function hatch(op, { id, error, subagents, activity, tzOffset }) {
   op.creatures.push(creature);
   if (creature.status === 'healthy') raiseHerd(op, creature);
   delete op.eggs[egg.id];
+  markDone(op, { id: egg.id, domainKey: egg.domainKey, creatureId: creature.id, skipped: false });
   computeBreeds(); // a new creature may unlock new cross-fed hybrids
   saveState();
   return creature;
@@ -684,7 +717,8 @@ function stateView(op, tz) {
   const { engagement, ...skills } = sk;
   return {
     rev, api: API_LEVEL, build: BUILD, sxv: Skills.SXV, rules: RULES,
-    eggs: Object.values(op.eggs).map((e) => ({ id: e.id, startedAt: e.startedAt, domainKey: e.domainKey, subagents: e.subagents || 0 })),
+    eggs: Object.values(op.eggs).map((e) => ({ id: e.id, startedAt: e.startedAt, domainKey: e.domainKey, subagents: e.subagents || 0, status: e.waiting ? 'input' : 'working', waiting: e.waiting || null, waitingAt: e.waitingAt || null })),
+    done: doneOf(op),
     creatures: op.creatures.slice().sort((a, b) => b.bornAt - a.bornAt),
     stats: statsOf(op), me: meOf(op),
     skills, engagement,
@@ -764,13 +798,14 @@ const server = http.createServer(async (req, res) => {
     return p ? json(res, 200, p) : json(res, 404, { error: 'no such operator' });
   }
 
-  if (req.method === 'POST' && (url === '/api/run-start' || url === '/api/run-subagent' || url === '/api/run-end')) {
+  if (req.method === 'POST' && (url === '/api/run-start' || url === '/api/run-subagent' || url === '/api/run-notify' || url === '/api/run-end')) {
     const body = await readBody(req);
     if (!body) return json(res, 400, { error: 'body must be a JSON object' }); // never lay an anonymous egg for garbage
     const op = resolveOp(req, body);
     if (!op) return json(res, 401, { error: 'unknown operator' });
     if (url === '/api/run-start') return json(res, 200, { ok: true, egg: layEgg(op, body) });
     if (url === '/api/run-subagent') return json(res, 200, { ok: true, egg: tickSubagent(op, body) });
+    if (url === '/api/run-notify') return json(res, 200, { ok: true, egg: notifyEgg(op, body) });
     const creature = hatch(op, body);
     if (creature && telemetry) telemetry.nudge();
     return json(res, 200, { ok: true, creature });

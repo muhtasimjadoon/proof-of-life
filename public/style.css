@@ -1040,3 +1040,13 @@ button.ghost.small { width: auto; padding: 8px 14px; }
   .p-head .note { font-size: 12px; }
   .sk-ghead { gap: 4px; }
 }
+
+/* live status: working / needs your input / done */
+.run-status { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; margin-bottom: 4px; color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+.run-status.rs-input { color: var(--amber); background: color-mix(in srgb, var(--amber) 16%, transparent); }
+.run-status.rs-done { color: var(--muted); background: #ffffff10; }
+.egg.is-waiting { border-color: color-mix(in srgb, var(--amber) 60%, transparent); }
+.egg.is-done { cursor: default; } .egg.is-done.link-c { cursor: pointer; }
+.pill.wait .live { background: var(--amber); box-shadow: 0 0 10px var(--amber); animation: blink 1s infinite; }
+.pill.done .live { background: var(--muted); box-shadow: none; animation: none; }
+.wk-share { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }

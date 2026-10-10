@@ -1,5 +1,5 @@
 {
-  "description": "Proof of Life: lay an egg when a run starts, count subagents, hatch a creature when it ends. Starts the local server at session start. Only counts leave the hook.",
+  "description": "Proof of Life: lay an egg when a run starts, count subagents, show when a run needs your input, hatch a creature when it ends. Starts the local server at session start. Only counts leave the hook.",
   "hooks": {
     "SessionStart": [
       { "matcher": "startup|resume", "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/cli.mjs\" ensure", "timeout": 20 }] }
@@ -9,6 +9,9 @@
     ],
     "SubagentStop": [
       { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/run-subagent.mjs\"" }] }
+    ],
+    "Notification": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/run-notify.mjs\"" }] }
     ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/run-end.mjs\"" }] }

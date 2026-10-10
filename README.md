@@ -20,7 +20,7 @@ Same run, same creature, always. Runs under 10 seconds don't hatch, so the shelf
 
 Needs Node 18+ and Claude Code on your own machine. No dependencies, no build step. Pick one way in, not two (two installs count every run twice).
 
-**npx (one command).** Adds three hooks to `~/.claude/settings.json` (backed up first), starts the server in the background and opens http://localhost:4855:
+**npx (one command).** Adds four hooks to `~/.claude/settings.json` (backed up first), starts the server in the background and opens http://localhost:4855:
 ```bash
 npx proof-of-life              # remove: npx proof-of-life uninstall
 ```
@@ -86,6 +86,12 @@ curl  http://localhost:4855/api/pubkey                       # the signing publi
 curl  http://localhost:4855/api/version                      # the running build
 ```
 
+## Your week, and live status
+
+- **Share this week** (Home, in *This week*) saves one PNG card of what your agents did this ISO week: runs and hours by type of work (non-code work first, Engineering last), your top creature, the week number and the total runs. It uses only your own runs; bred creatures are not runs, and sessions left open are not counted as hours. A week with no runs saves an honest empty card.
+- **Live status:** while a run is going, its egg and the top bar say *Working*. When Claude Code asks for permission or asks you a question, the `Notification` hook marks it *Needs your input* until the next prompt, the next finished subagent or the end of the run. When the run ends it shows *Done* for two minutes, with the creature it hatched. Only one word leaves the hook (permission, question or input), never the notice text.
+- **Already installed before this?** Re-run the installer once to add the `Notification` hook: `node cli.mjs` in a clone, or `npx proof-of-life`. The plugin picks it up on update.
+
 ## Options
 
 | | |
@@ -108,13 +114,14 @@ curl  http://localhost:4855/api/version                      # the running build
 |---|---|
 | `hooks/run-start.mjs` | `UserPromptSubmit`: lays an egg |
 | `hooks/run-subagent.mjs` | `SubagentStop`: counts subagents |
+| `hooks/run-notify.mjs` | `Notification`: marks the running egg "needs your input" (permission prompt or question); only one word is sent, never the notice text |
 | `hooks/run-end.mjs` | `Stop`: reads what the agent did and hatches the creature |
 | `engine.js` | deterministic creature engine (species, rarity, Mythic, traits, art seed) |
 | `skills.js` | skill curve, bands and xp formulas (shared with the browser as `/skills.js`) |
 | `public/variants.js` | the collectible look of every seed: colorways, patterns, accessories, faces, Shiny, growth, Dex slots |
 | `server.js` | zero-dependency server: signing, storage, API, UI |
 | `cli.mjs` | `npx proof-of-life`: install, start, stop, uninstall; `ensure` is the plugin's SessionStart hook |
-| `install.mjs` | adds or removes the three hooks in `~/.claude/settings.json` |
+| `install.mjs` | adds or removes the four hooks in `~/.claude/settings.json` |
 | `paths.js` | where data lives for a clone vs an npm, npx or plugin copy |
 | `hooks/hooks.json`, `.claude-plugin/` | the Claude Code plugin and its marketplace entry |
 | `scripts/smoke.mjs` | install smoke test CI runs on Windows, macOS and Linux (`npm run smoke`) |

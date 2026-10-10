@@ -71,11 +71,11 @@ function transcript(file) {
   return file;
 }
 
-const isPol = (h) => /run-(start|end|subagent)\.mjs/.test(h.command || '');
+const isPol = (h) => /run-(start|end|subagent|notify)\.mjs/.test(h.command || '');
 function polCommands(settingsFile) {
   const s = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
   const pick = (ev) => ((s.hooks || {})[ev] || []).flatMap((g) => g.hooks || []).filter(isPol).map((h) => h.command);
-  return { start: pick('UserPromptSubmit'), end: pick('Stop'), sub: pick('SubagentStop'), all: s };
+  return { start: pick('UserPromptSubmit'), end: pick('Stop'), sub: pick('SubagentStop'), notify: pick('Notification'), all: s };
 }
 
 async function scenario(mode, port) {
@@ -108,7 +108,7 @@ async function scenario(mode, port) {
     const r = await run(pick('SessionStart')[0], [], { env, shell: true, input: JSON.stringify({ session_id: 'x', hook_event_name: 'SessionStart', source: 'startup' }) });
     assert.equal(r.code, 0, 'SessionStart hook exits 0');
     assert.equal(r.out.trim(), '', 'SessionStart hook prints nothing (it would land in the context)');
-    cmds = { start: pick('UserPromptSubmit'), end: pick('Stop'), sub: pick('SubagentStop') };
+    cmds = { start: pick('UserPromptSubmit'), end: pick('Stop'), sub: pick('SubagentStop'), notify: pick('Notification') };
     uninstall = async () => { const s = await node(path.join(ROOT, 'cli.mjs'), ['stop'], { env }); assert.equal(s.code, 0, s.out); };
   } else {
     let cli;
@@ -125,7 +125,7 @@ async function scenario(mode, port) {
     const c = polCommands(settings);
     assert.equal(c.all.theme, 'dark', 'other settings kept');
     assert.ok(c.all.hooks.Stop.some((g) => g.hooks.some((h) => h.command === other.command)), 'unrelated hook kept');
-    for (const k of ['start', 'end', 'sub']) assert.equal(c[k].length, 1, `one ${k} hook installed`);
+    for (const k of ['start', 'end', 'sub', 'notify']) assert.equal(c[k].length, 1, `one ${k} hook installed`);
     if (mode === 'npx') {
       const app = path.join(home, 'app');
       assert.ok(c.start[0].includes(app), `npx hooks point at the stable copy ${app}, not the npx cache: ${c.start[0]}`);
@@ -140,7 +140,7 @@ async function scenario(mode, port) {
       const u = await cli(['uninstall']);
       assert.equal(u.code, 0, u.out);
       const after = polCommands(settings);
-      assert.equal(after.start.length + after.end.length + after.sub.length, 0, 'uninstall removes every Proof of Life hook');
+      assert.equal(after.start.length + after.end.length + after.sub.length + after.notify.length, 0, 'uninstall removes every Proof of Life hook');
       assert.ok(after.all.hooks.Stop.some((g) => g.hooks.some((h) => h.command === other.command)), 'unrelated hook survives uninstall');
     };
   }
@@ -155,9 +155,15 @@ async function scenario(mode, port) {
   const ts = transcript(path.join(dir, 'agent.jsonl'));
   const fire = async (c, payload) => { const r = await run(c, [], { env: hookEnv, shell: true, input: JSON.stringify(payload) }); assert.equal(r.code, 0, `hook exits 0: ${c}\n${r.out}`); };
   await fire(cmds.start[0], { session_id: sid, prompt: PRIVATE, hook_event_name: 'UserPromptSubmit' });
+  // live status: a permission prompt marks the egg "needs your input"; the notice text never leaves
+  await fire(cmds.notify[0], { session_id: sid, hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'SECRET-PROMPT-TEXT needs permission' });
+  const w = await get(port, '/api/state');
+  const we = w && w.eggs.find((e) => e.id === sid);
+  assert.ok(we && we.status === 'input' && we.waiting === 'permission', 'Notification marks the egg as needing input');
   await fire(cmds.sub[0], { session_id: sid, agent_transcript_path: ts, hook_event_name: 'SubagentStop' });
   const st = await get(port, '/api/state');
   assert.ok(st && st.eggs.some((e) => e.id === sid), 'an egg was laid');
+  assert.equal(st.eggs.find((e) => e.id === sid).status, 'working', 'a finished subagent clears needs-input');
   say('egg laid, waiting for the 10 s hatch minimum');
   await sleep(MIN_HATCH_MS + 1000);
   await fire(cmds.end[0], { session_id: sid, transcript_path: t, hook_event_name: 'Stop' });
@@ -165,6 +171,7 @@ async function scenario(mode, port) {
   const state = await get(port, '/api/state');
   const cr = state && state.creatures.find((x) => x.id === sid || String(x.id).startsWith(sid));
   assert.ok(cr, 'a creature hatched');
+  assert.ok(state.done && state.done.some((d) => d.id === sid && d.creatureId === cr.id), 'the run shows as done');
   assert.ok(cr.toolCalls >= 3 || (cr.activity && cr.activity.toolCalls >= 3), 'activity counts arrived');
   for (const x of state.creatures) {
     const ver = await get(port, '/api/verify?id=' + encodeURIComponent(x.id));

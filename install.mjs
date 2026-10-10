@@ -1,4 +1,4 @@
-// Proof of Life — installer. Wires the three hooks into Claude Code's global
+// Proof of Life — installer. Wires the four hooks into Claude Code's global
 // settings (~/.claude/settings.json), pointing at this folder. Safe to re-run:
 // it backs the file up first (only when it changes), keeps every other hook you
 // have, and never adds the same hook twice. Only one Proof of Life install is
@@ -52,16 +52,17 @@ const HOOKS = {
   UserPromptSubmit: 'run-start.mjs',
   Stop: 'run-end.mjs',
   SubagentStop: 'run-subagent.mjs',
+  Notification: 'run-notify.mjs', // live status: needs your input
 };
 
 const cmdFor = (file) => `node "${path.join(here, 'hooks', file)}" ${MARK}`;
 // ours: carries the marker, or (installs before the marker existed) points at a
 // hooks/run-*.mjs inside any folder that holds a Proof of Life engine
-const HOOK_RE = /hooks[\\/]+run-(start|end|subagent)\.mjs/;
+const HOOK_RE = /hooks[\\/]+run-(start|end|subagent|notify)\.mjs/;
 function isOurs(h) {
   if (!h || typeof h.command !== 'string' || !HOOK_RE.test(h.command)) return false;
   if (/(^|\s)--pol(\s|$)/.test(h.command)) return true;
-  const m = h.command.match(/"([^"]*hooks[\\/]+run-(?:start|end|subagent)\.mjs)"/) || h.command.match(/(\S*hooks[\\/]+run-(?:start|end|subagent)\.mjs)/);
+  const m = h.command.match(/"([^"]*hooks[\\/]+run-(?:start|end|subagent|notify)\.mjs)"/) || h.command.match(/(\S*hooks[\\/]+run-(?:start|end|subagent|notify)\.mjs)/);
   if (!m) return false;
   const dir = path.dirname(path.dirname(m[1]));
   return h.command.includes('proof-of-life') || fs.existsSync(path.join(dir, 'engine.js'));

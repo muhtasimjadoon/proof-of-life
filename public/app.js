@@ -1302,10 +1302,21 @@ function eggForecast(ms, subs) {
   const pct = Math.min(1, (idx + Math.min(1, Math.max(0, (ms - lo) / Math.max(1, hi - lo)))) / tiers.length);
   return { now, idx, pct, html: `Hatches <b style="color:${TIERC[now]}">${now}</b> if it ends now${bits.length ? ' · ' + bits.join(' · ') : ''}` };
 }
+// live status of a run: working, needs your input (Notification hook), done (Stop)
+const WAIT_LINE = { permission: 'Claude is asking for permission', question: 'Claude has a question for you', input: 'Claude is waiting for you' };
+const DONE_SHOW_MS = 2 * 60 * 1000;
+const waitingEggs = () => (latest.eggs || []).filter((e) => e.status === 'input');
+const recentDone = () => (latest.done || []).filter((d) => Date.now() - d.endedAt < DONE_SHOW_MS && !(latest.eggs || []).some((e) => e.id === d.id));
+function statusTag(kind) { return `<span class="run-status rs-${kind}">${kind === 'input' ? 'Needs your input' : kind === 'done' ? 'Done' : 'Working'}</span>`; }
+function doneBox(d) {
+  const c = d.creatureId ? findCreature(d.creatureId) : null, col = (ART_PAL[d.domainKey] || ART_PAL.wisp).glow;
+  return `<div class="egg is-done${c ? ' link-c' : ''}"${c ? ` data-id="${escapeXml(c.id)}"` : ''}>${c ? creatureSVG(c, 54) : eggSVG(hashString(String(d.id)), col, 54)}<div class="egg-txt">${statusTag('done')}<b>${c ? 'Hatched ' + escapeXml(shortName(c)) : 'Run finished'}</b><span class="egg-meta">${(DOMAIN_LABEL[d.domainKey] || 'General')} work · ${c ? `<span style="color:${c.rarity.chip}">${c.rarity.tier}</span> · ${escapeXml(c.durationLabel || '')} run` : 'too quick to hatch (under 10 seconds)'} · ${ago(d.endedAt)}</span></div></div>`;
+}
 function eggBox(e) {
   const col = (ART_PAL[e.domainKey] || ART_PAL.wisp).glow, ms = Date.now() - Number(e.startedAt), fc = eggForecast(ms, e.subagents || 0);
   const segs = rules().rarity.map((t, i) => `<i style="--c:${TIERC[t.tier]}" class="${i <= fc.idx ? 'on' : ''}"></i>`).join('');
-  return `<div class="egg" data-start="${Number(e.startedAt) || 0}" data-subs="${e.subagents || 0}">${eggSVG(hashString(String(e.id)), col, 54)}<div class="egg-txt"><b>A creature is growing</b><span class="egg-meta">${(DOMAIN_LABEL[e.domainKey] || 'General')} work · <span class="timer">${fmtClock(ms)}</span>${e.subagents ? ` · ${plural(e.subagents, 'subagent')}` : ''}</span>
+  const wait = e.status === 'input';
+  return `<div class="egg${wait ? ' is-waiting' : ''}" data-start="${Number(e.startedAt) || 0}" data-subs="${e.subagents || 0}">${eggSVG(hashString(String(e.id)), col, 54)}<div class="egg-txt">${statusTag(wait ? 'input' : 'working')}<b>${wait ? escapeXml(WAIT_LINE[e.waiting] || WAIT_LINE.input) + ' in the terminal' : 'A creature is growing'}</b><span class="egg-meta">${(DOMAIN_LABEL[e.domainKey] || 'General')} work · <span class="timer">${fmtClock(ms)}</span>${e.subagents ? ` · ${plural(e.subagents, 'subagent')}` : ''}</span>
     <div class="meter">${segs}<em style="left:${(fc.pct * 100).toFixed(1)}%"></em></div><div class="forecast">${fc.html}</div></div></div>`;
 }
 
@@ -1361,7 +1372,8 @@ function sec_home() {
   countVisit();
   const cs = latest.creatures, en = latest.engagement;
   const welcome = welcomeHTML();
-  const growing = latest.eggs.length ? `<div class="panel growing"><div class="p-head"><h2>Growing now</h2><span class="note">the real clock of each running agent</span></div><div class="eggs">${latest.eggs.map(eggBox).join('')}</div></div>` : '';
+  const dn = recentDone();
+  const growing = latest.eggs.length || dn.length ? `<div class="panel growing"><div class="p-head"><h2>${latest.eggs.length ? 'Growing now' : 'Just finished'}</h2><span class="note">${waitingEggs().length ? 'a run is waiting on you' : latest.eggs.length ? 'the real clock of each running agent' : 'runs that ended in the last 2 minutes'}</span></div><div class="eggs">${latest.eggs.map(eggBox).join('')}${dn.map(doneBox).join('')}</div></div>` : '';
   if (!cs.length) return `${welcome}<div class="panel hero-empty">${eggSVG(1234, '#a48ff0', 120)}${latest.eggs.length ? '<h2>Your first creature is on its way</h2><p class="p-desc">Claude is working on a task right now. When the run ends, it hatches here, and the longer it runs the rarer it gets.</p>' : '<h2>Your first egg is waiting</h2><p class="p-desc">The next time Claude works on a task for you, an egg appears here and hatches when the run ends.</p>'}</div>${growing}`;
   const newest = cs[0];
   const today = en && en.goal ? `<div class="panel today">${goalPanel(en)}<div class="divider"></div>${streakPanel(en)}</div>` : '';
@@ -1373,6 +1385,7 @@ function sec_home() {
   const wg = en && en.weekGains && en.weekGains.length ? en.weekGains : null, wmax = wg ? Math.max(...wg.map((g) => g.xp)) : 1;
   const week = `<div class="panel weekp"><div class="p-head"><h2>This week</h2><span class="note link" data-go="skills">all skills →</span></div>
     ${rw ? `<div class="rw link-c" data-id="${escapeXml(rw.id)}" style="--tier:${rw.rarity.chip}">${creatureSVG(rw, 84, { live: true })}<div><span class="eyebrow">Rarest this week</span><b>${escapeXml(shortName(rw))} <em class="rw-sp">${escapeXml(rw.speciesName)}</em></b><span><span style="color:${rw.rarity.chip}">${rw.rarity.tier}</span> · ${escapeXml(en.rarestWeek.durationLabel)} run · ${shortDate(rw.bornAt)}</span></div></div>` : ''}
+    ${weekShareHTML()}
     ${wg ? wg.map((g) => { const s = latest.skills.list.find((x) => x.key === g.key); return `<div class="wk-row"><span>${escapeXml(g.name)}</span><b>+${fmtN(g.xp)} xp</b><div class="wk-bar"><i style="width:${Math.round((g.xp / wmax) * 100)}%;background:${s ? s.band.color : 'var(--green)'}"></i></div></div>`; }).join('') : '<p class="note">No skill gains in the last 7 days.</p>'}</div>`;
   const os = latest.stats.openSessions;
   const stats = `<div class="statstrip"><div class="stat"><b>${fmtN(cs.length)}</b><span>creatures</span></div><div class="stat"><b>${latest.stats.machineHours}</b><span>hours Claude worked</span></div><div class="stat"><b>${latest.skills ? fmtN(latest.skills.totalLevel) : '—'}</b><span>total level</span></div>${hasPower(latest.me) ? `<div class="stat"><b>${fmtN(latest.me.score)}</b><span>power</span></div><div class="stat"><b>${fmtN(latest.me.week)}</b><span>points this week</span></div>` : ''}
@@ -1556,6 +1569,7 @@ function sec_proof() {
   const hooks = `<ol class="hooks">
     <li class="hook"><b>UserPromptSubmit</b><span>egg laid, the clock starts</span></li>
     <li class="hook"><b>SubagentStop</b><span>each subagent, counted</span></li>
+    <li class="hook"><b>Notification</b><span>needs your input, shown live</span></li>
     <li class="hook"><b>Stop</b><span>hatched and signed</span></li>
     <li class="hook born"><b>Creature born</b><span>species, rarity, skills</span></li></ol>`;
   // your real runs as the examples, never made-up run ids
@@ -1931,7 +1945,11 @@ async function checkServer(st) {
 function topRight() {
   const running = latest.eggs.length, en = latest.engagement;
   const streak = en && en.streak ? `<div class="pill streak-pill hide-sm" title="best ${en.bestStreak} days">${FLAME}<b>${en.streak}</b><span>day streak</span></div>` : '';
-  return `<div class="pill ${running ? '' : 'idle'}"><span class="live"></span>${running ? (running > 1 ? running + ' agents working' : 'Claude is working') : 'idle'}</div>${streak}<div class="pill hide-sm"><b>${fmtN(latest.creatures.length)}</b> creatures</div>`;
+  const waiting = waitingEggs().length, dn = !running && recentDone().length;
+  const live = waiting ? `<div class="pill wait" title="a run is waiting on you in the terminal"><span class="live"></span>${waiting > 1 ? waiting + ' runs need your input' : 'Needs your input'}</div>`
+    : running ? `<div class="pill"><span class="live"></span>${running > 1 ? running + ' agents working' : 'Claude is working'}</div>`
+    : dn ? '<div class="pill done"><span class="live"></span>Done</div>' : '<div class="pill idle"><span class="live"></span>idle</div>';
+  return `${live}${streak}<div class="pill hide-sm"><b>${fmtN(latest.creatures.length)}</b> creatures</div>`;
 }
 let rendered = { key: null, sig: '' };
 function renderActive() {
@@ -1956,6 +1974,7 @@ function renderActive() {
   const rp = stage.querySelector('#replay'); if (rp) rp.onclick = () => { sfx.unlock(); queueReveals([latest.creatures[0]], true); };
   const on = stage.querySelector('#opennew'); if (on) on.onclick = () => openModal(latest.creatures[0]);
   const sv = stage.querySelector('#savenew'); if (sv) sv.onclick = () => downloadCard(latest.creatures[0], 'portrait');
+  const swk = stage.querySelector('#saveweek'); if (swk) swk.onclick = downloadWeekCard;
   const gs = stage.querySelector('#goalsel'); if (gs) gs.onchange = async () => { const [type, target] = gs.value.split(':'); try { await fetch('/api/me', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ goal: { type, target: Number(target) } }) }); } catch {} poll(true); };
   const skc = stage.querySelector('#skcard'); if (skc) skc.onclick = () => downloadSkillCard(latest.skills.list.find((s) => s.key === skc.dataset.skill));
   const recent = stage.querySelector('#recent'); if (recent) reconcile(recent, stripList(), (c) => tileHTML(c), tileKey);
@@ -1979,7 +1998,7 @@ function sectionSig() {
   const lv = sk ? sk.list.map((s) => s.level + ':' + (s.locked ? 0 : 1)).join() : '';
   const top = latest.creatures[0] ? latest.creatures[0].id + ':' + latest.creatures[0].level : '';
   switch (current) {
-    case 'home': return [latest.creatures.length, top, latest.eggs.map((e) => e.id + ':' + (e.subagents || 0)).join(), en && en.goal ? en.goal.progress + ':' + en.goal.target + ':' + en.goal.auto : '', en ? en.streak : '', lv, latest.me ? latest.me.score : ''].join('|');
+    case 'home': return [latest.creatures.length, top, latest.eggs.map((e) => e.id + ':' + (e.subagents || 0) + ':' + (e.status || '')).join(), recentDone().map((d) => d.id).join(), en && en.goal ? en.goal.progress + ':' + en.goal.target + ':' + en.goal.auto : '', en ? en.streak : '', lv, latest.me ? latest.me.score : ''].join('|');
     case 'skills': return [lv, sk ? sk.totalXp : '', sk ? (sk.milestones || []).length : ''].join('|');
     case 'board': return [boardData.map((r) => r.handle + r.week + ':' + r.score).join(), en && en.records ? en.records.thisWeek + ':' + (en.records.lastDays || []).join(',') : '', latest.creatures.length].join('|');
     case 'bestiary': return [latest.creatures.length, top, bestiaryData ? bestiaryData.network.breeds : 0, dexOpen].join('|');
@@ -2336,6 +2355,72 @@ function saveSVG(svg, W, H, name) {
   img.src = url;
 }
 function downloadCard(c, preset) { if (!c) return; const [W, H] = CARD_PRESETS[preset] || CARD_PRESETS.portrait; saveSVG(buildCardSVG(c, preset), W, H, c.fullName.replace(/[^a-z0-9]+/gi, '-').toLowerCase() + (preset === 'og' ? '-wide' : '')); }
+// ---- the weekly card: what my agents did this ISO week, by type of work ----
+// Real runs only (bred creatures are not runs). Hours leave out sessions left
+// open (as the stat strip does). Non-code work first, Engineering last.
+function isoWeekOf(ms) {
+  const d = new Date(ms), t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  t.setDate(t.getDate() - ((t.getDay() + 6) % 7) + 3); // the Thursday decides the year
+  const wk = 1 + Math.floor(Math.round((t - new Date(t.getFullYear(), 0, 1)) / 86400000) / 7);
+  return { year: t.getFullYear(), week: wk };
+}
+function weekSummary(now) {
+  now = now || Date.now();
+  const d0 = new Date(now); d0.setHours(0, 0, 0, 0); d0.setDate(d0.getDate() - ((d0.getDay() + 6) % 7));
+  const from = d0.getTime(), to = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() + 7).getTime();
+  const runs = latest.creatures.filter((c) => !c.bredBy && c.bornAt >= from && c.bornAt < to);
+  const by = {};
+  let ms = 0;
+  for (const c of runs) {
+    const k = DOMAIN_LABEL[c.domainKey] ? c.domainKey : 'wisp', b = by[k] || (by[k] = { key: k, label: DOMAIN_LABEL[k], runs: 0, ms: 0 });
+    b.runs++;
+    if (!isOpenRun(c)) { b.ms += c.durationMs || 0; ms += c.durationMs || 0; }
+  }
+  const order = (a, b) => b.runs - a.runs || b.ms - a.ms || a.label.localeCompare(b.label);
+  const types = Object.values(by).filter((t) => t.key !== 'cog').sort(order).concat(by.cog ? [by.cog] : []);
+  const top = runs.filter((c) => !isOpenRun(c)).sort(byRarest)[0] || null;
+  const iw = isoWeekOf(now);
+  return { from, to, runs: runs.length, ms, types, top, nonCode: runs.filter((c) => c.domainKey !== 'cog').length, ...iw };
+}
+const hrs = (ms) => { const h = ms / 3600000; return h >= 10 ? Math.round(h) + ' h' : h >= 1 ? (Math.round(h * 10) / 10) + ' h' : Math.round(ms / 60000) + ' min'; };
+function weekShareHTML() {
+  const w = weekSummary();
+  return `<div class="wk-share"><span class="note">Week ${w.week} · ${plural(w.runs, 'run')}${w.runs ? ' · ' + hrs(w.ms) : ''}</span><button id="saveweek" title="save a card of what your agents did this week">${SAVE_IC} Share this week</button></div>`;
+}
+function buildWeekCardSVG(w) {
+  const W = 1080, H = 1350, me = latest.me ? '@' + latest.me.handle : '';
+  const T = (x, y, size, fill, txt, o) => `<text x="${x}" y="${y}" text-anchor="${(o && o.a) || 'middle'}" font-family="${o && o.serif ? 'Georgia,serif' : o && o.mono ? 'ui-monospace,Consolas,monospace' : 'system-ui,Segoe UI,sans-serif'}" font-size="${size}" fill="${fill}"${o && o.ls ? ` letter-spacing="${o.ls}"` : ''}${o && o.w ? ` font-weight="${o.w}"` : ''}>${escapeXml(txt)}</text>`;
+  const fmtD = (ms) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const range = `${fmtD(w.from)} to ${fmtD(w.to - 1)}, ${w.year}`;
+  let body = '';
+  if (!w.runs) {
+    body = `<g transform="translate(${540 - 100 * 1.6} ${560 - 115 * 1.6}) scale(1.6)" opacity=".55">${eggSVG(4141, '#8d96b3', 200).replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '')}</g>
+      ${T(540, 820, 54, '#f4f2ff', 'No agent runs yet this week', { serif: 1 })}
+      ${T(540, 878, 26, '#9aa3bf', 'Every Claude Code run this week will show up here, by type of work.')}`;
+  } else {
+    const rows = w.types.slice(0, 7), max = Math.max(...rows.map((t) => t.runs)), y0 = 520, rh = 74;
+    const firstCode = rows.findIndex((t) => t.key === 'cog');
+    body = `${T(80, 330, 120, '#f4f2ff', fmtN(w.runs), { a: 'start', serif: 1 })}${T(80, 380, 24, '#9aa3bf', w.runs === 1 ? 'agent run' : 'agent runs', { a: 'start', ls: 2 })}
+      ${T(470, 330, 120, '#f4f2ff', hrs(w.ms).replace(' ', ''), { a: 'start', serif: 1 })}${T(470, 380, 24, '#9aa3bf', 'of agent time', { a: 'start', ls: 2 })}
+      ${T(80, 470, 22, '#8d96b3', 'BY TYPE OF WORK', { a: 'start', ls: 5, w: 700 })}${T(W - 80, 470, 22, '#8d96b3', w.nonCode ? Math.round((100 * w.nonCode) / w.runs) + '% NOT CODE' : 'ALL CODE', { a: 'end', ls: 4, w: 700 })}
+      ${rows.map((t, i) => { const y = y0 + i * rh + (firstCode > 0 && i >= firstCode ? 18 : 0), col = (ART_PAL[t.key] || ART_PAL.wisp).glow, bw = Math.max(10, (450 * t.runs) / max);
+        return `${firstCode > 0 && i === firstCode ? `<path d="M80 ${y - 30}H${W - 80}" stroke="#ffffff" stroke-opacity=".1" stroke-width="2"/>` : ''}${T(80, y + 30, 30, '#f4f2ff', t.label, { a: 'start', w: 600 })}<rect x="330" y="${y + 6}" width="450" height="32" rx="16" fill="#ffffff" fill-opacity=".05"/><rect x="330" y="${y + 6}" width="${F(bw)}" height="32" rx="16" fill="${col}"/>${T(W - 80, y + 31, 26, '#d8dcea', `${plural(t.runs, 'run')} · ${t.ms ? hrs(t.ms) : '0 min'}`, { a: 'end', w: 600 })}`; }).join('')}`;
+    if (w.top) {
+      const c = w.top, inner = creatureInner(c, rngFor(c.seed)).split('__I__').join('-wk'), yT = 1060;
+      body += `<rect x="80" y="${yT}" width="${W - 160}" height="150" rx="24" fill="${c.rarity.chip}" fill-opacity=".08" stroke="${c.rarity.chip}" stroke-opacity=".45" stroke-width="2"/>
+        <clipPath id="wk-clip"><rect x="92" y="${yT + 12}" width="126" height="126" rx="18"/></clipPath><g clip-path="url(#wk-clip)"><rect x="92" y="${yT + 12}" width="126" height="126" fill="#0f121b"/>${fitArt(c, inner, 92, yT + 12, 126, 126, 8)}</g>
+        ${T(246, yT + 48, 20, '#8d96b3', 'TOP CREATURE THIS WEEK', { a: 'start', ls: 4, w: 700 })}${T(246, yT + 92, Math.min(40, Math.floor(1300 / Math.max(10, c.fullName.length))), '#f4f2ff', c.fullName, { a: 'start', serif: 1 })}
+        ${T(246, yT + 128, 22, c.rarity.chip, `${c.rarity.tier} ${c.speciesName} · ${DOMAIN_LABEL[c.domainKey] || 'General'} work · ${c.durationLabel || ''} run`, { a: 'start', w: 600 })}`;
+    }
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs>${PL_DEFS}<radialGradient id="bgg" cx="50%" cy="30%" r="85%"><stop offset="0" stop-color="#1e2436"/><stop offset="1" stop-color="#0a0c12"/></radialGradient></defs>
+    <rect width="${W}" height="${H}" rx="44" fill="url(#bgg)"/><rect x="18" y="18" width="${W - 36}" height="${H - 36}" rx="30" fill="none" stroke="#b28dff" stroke-opacity=".45" stroke-width="3"/>
+    ${T(80, 106, 22, '#9aa3bf', 'PROOF OF LIFE  ·  WEEK ' + w.week, { a: 'start', ls: 7, w: 700 })}${T(W - 80, 106, 22, '#8d96b3', range, { a: 'end' })}
+    ${T(80, 196, 64, '#f6f4ff', 'What my agents did', { a: 'start', serif: 1 })}
+    ${body}
+    ${T(80, 1282, 22, '#7e88a6', me, { a: 'start' })}${T(W - 80, 1282, 20, '#646d88', 'from my own Claude Code runs · a tamper-evident record', { a: 'end' })}</svg>`;
+}
+function downloadWeekCard() { const w = weekSummary(); saveSVG(buildWeekCardSVG(w), 1080, 1350, `agents-week-${w.year}-w${String(w.week).padStart(2, '0')}`); }
 function downloadSkillCard(s) { if (s) saveSVG(buildSkillCardSVG(s), 1080, 1350, 'skill-' + s.key + '-lv' + s.level); }
 
 // ---- loop ----
