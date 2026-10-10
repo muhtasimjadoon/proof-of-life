@@ -4,14 +4,43 @@
   "description": "A weekly report of what your Claude Code agents did, by type of work. Every run hatches a creature: a signed, tamper-evident record of that run.",
   "license": "MIT",
   "author": "Muhtasim Jadoon",
+  "bin": {
+    "proof-of-life": "cli.mjs"
+  },
   "main": "server.js",
-  "engines": { "node": ">=18" },
+  "files": [
+    "cli.mjs",
+    "install.mjs",
+    "server.js",
+    "engine.js",
+    "skills.js",
+    "telemetry.js",
+    "paths.js",
+    "hooks/",
+    "public/",
+    "scripts/stats.mjs",
+    ".claude-plugin/",
+    "README.md",
+    "TELEMETRY.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server.js",
     "install-hooks": "node install.mjs",
     "uninstall-hooks": "node install.mjs --uninstall",
     "stats": "node scripts/stats.mjs",
     "metrics": "node scripts/metrics.mjs",
-    "test": "node scripts/metrics.test.mjs && node collector/test.mjs"
-  },  "keywords": ["claude-code", "hooks", "ai-agents", "tamagotchi", "agent-report"]
+    "test": "node scripts/metrics.test.mjs && node collector/test.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "keywords": [
+    "claude-code",
+    "hooks",
+    "ai-agents",
+    "tamagotchi",
+    "agent-report"
+  ]
 }

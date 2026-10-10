@@ -18,22 +18,35 @@ Same run, same creature, always. Runs under 10 seconds don't hatch, so the shelf
 
 ## Install (2 minutes)
 
-Needs Node 18+ and Claude Code. No dependencies, no build step.
+Needs Node 18+ and Claude Code on your own machine. No dependencies, no build step. Pick one way in, not two (two installs count every run twice).
 
+**npx (one command).** Adds three hooks to `~/.claude/settings.json` (backed up first), starts the server in the background and opens http://localhost:4855:
 ```bash
-git clone https://github.com/<you>/proof-of-life
-cd proof-of-life
-node install.mjs     # adds three hooks to ~/.claude/settings.json (backs it up first)
-node server.js       # open http://localhost:4855
+npx proof-of-life              # remove: npx proof-of-life uninstall
 ```
+After a reboot: `npx proof-of-life start`. Data lives in `~/.proof-of-life/data`, so updates never touch it.
 
-Then use Claude Code as usual. To remove it: `node install.mjs --uninstall`.
+**Claude Code plugin (no terminal, works in the Desktop Code tab).** In a session:
+```
+/plugin marketplace add <owner>/proof-of-life
+/plugin install proof-of-life@proof-of-life
+```
+The plugin starts the server when a session starts and opens the page the first time. Data lives in `~/.proof-of-life/data`.
 
-**After you update the code, restart the server** (stop it, then run `node server.js` again). The page is read from disk, so it updates at once; the server only loads its code when it starts. If the two don't match, the page says so in a banner instead of quietly showing empty panels (`/api/version` reports the running build).
+**git clone.**
+```bash
+git clone https://github.com/<owner>/proof-of-life && cd proof-of-life
+node cli.mjs                   # hooks + server + page; remove: node cli.mjs uninstall
+```
+A clone keeps its data in `./data`. The old way still works: `node install.mjs`, then `node server.js`.
+
+Then use Claude Code as usual. `stop` and `start` work in every path (`npx proof-of-life stop`, `node cli.mjs start`); they only ever stop a server they started.
+
+**After you update the code, restart the server** (`node cli.mjs stop`, then `node cli.mjs start`; npx and the plugin restart their own server when the version changes). The page is read from disk, so it updates at once; the server only loads its code when it starts. If the two don't match, the page says so in a banner instead of quietly showing empty panels (`/api/version` reports the running build).
 
 ## Privacy
 
-Everything runs on your machine. Your creatures live in `data/state.json`.
+Everything runs on your machine. Your creatures live in `state.json` in your data folder (`./data` in a git clone, `~/.proof-of-life/data` for npx and the plugin).
 
 - **Your prompts never leave the hook.** The prompt is classified locally into a species key, and only that key is sent to the local server.
 - **When a run ends,** the hook reads the transcript and sends only counts: tool names, file extensions from a known list, the first word of shell commands from a known list (`npm`, `git`, `ffmpeg`), how many `git commit` and `git push` commands ran, and how many tool calls came back as errors. Anything else is sent as `other`. It never sends file paths, file names, file contents, command arguments, error text or the conversation. When `POL_SERVER` points at another machine, MCP tool names are reduced to a family (`mcp__outreach`, `mcp__browser`), so the host never learns which servers you run.
@@ -78,13 +91,16 @@ curl  http://localhost:4855/api/version                      # the running build
 | | |
 |---|---|
 | `POL_PORT` | server port (default 4855) |
-| `POL_DATA_DIR` | where creatures are stored (default `./data`) |
+| `POL_DATA_DIR` | where creatures are stored (default `./data` in a git clone, `~/.proof-of-life/data` for npx and the plugin) |
+| `POL_HOME` | move `~/.proof-of-life` (the npx app copy and its data) |
+| `POL_SETTINGS` | install the hooks into another settings file (tests) |
+| `npx proof-of-life --no-open --no-start` | install without opening a browser or starting the server |
 | `POL_HOST` | listen address (default `127.0.0.1`; `0.0.0.0` to share) |
 | `POL_SERVER`, `POL_TOKEN` | point the hooks at a hosted server instead of localhost |
 | `node server.js --samples` | add sample operators to explore the Board and cross-breeding |
 | `POL_TELEMETRY=off` | never send usage stats, whatever you answered at install ([TELEMETRY.md](TELEMETRY.md)) |
 | `node install.mjs --telemetry=on\|off` | change your usage-stats answer |
-| `node scripts/stats.mjs [state.json]` | share of your creatures by work type since 2026-10-09 (read-only; default `data/state.json`) |
+| `node scripts/stats.mjs [state.json]` | share of your creatures by work type since 2026-10-09 (read-only; default: `state.json` in your data folder) |
 
 ## How it works
 
@@ -97,6 +113,11 @@ curl  http://localhost:4855/api/version                      # the running build
 | `skills.js` | skill curve, bands and xp formulas (shared with the browser as `/skills.js`) |
 | `public/variants.js` | the collectible look of every seed: colorways, patterns, accessories, faces, Shiny, growth, Dex slots |
 | `server.js` | zero-dependency server: signing, storage, API, UI |
+| `cli.mjs` | `npx proof-of-life`: install, start, stop, uninstall; `ensure` is the plugin's SessionStart hook |
+| `install.mjs` | adds or removes the three hooks in `~/.claude/settings.json` |
+| `paths.js` | where data lives for a clone vs an npm, npx or plugin copy |
+| `hooks/hooks.json`, `.claude-plugin/` | the Claude Code plugin and its marketplace entry |
+| `scripts/smoke.mjs` | install smoke test CI runs on Windows, macOS and Linux (`npm run smoke`) |
 
 ## License
 

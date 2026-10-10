@@ -22,7 +22,7 @@ const Telemetry = require('./telemetry.js');
 // can run newer code than this process. /api/version lets the page notice and
 // ask for a restart instead of quietly showing empty panels.
 const API_LEVEL = 2; // bump when the page needs something new from the API
-const CODE_FILES = ['server.js', 'engine.js', 'skills.js', 'public/variants.js', 'telemetry.js'];
+const CODE_FILES = ['server.js', 'engine.js', 'skills.js', 'public/variants.js', 'telemetry.js', 'paths.js'];
 function codeHash() {
   const h = crypto.createHash('sha256');
   for (const f of CODE_FILES) { try { h.update(fs.readFileSync(path.join(__dirname, f))); } catch { h.update('missing:' + f); } }
@@ -40,7 +40,8 @@ const MIN_HATCH_MS = 10 * 1000;
 // an egg not seen for this long never got its Stop hook (session closed, server
 // was down): it is orphaned and dropped. Long, live runs stay well inside this.
 const EGG_TTL_MS = 24 * 60 * 60 * 1000;
-const DATA_DIR = process.env.POL_DATA_DIR || path.join(__dirname, 'data');
+// a git clone keeps ./data; npm, npx and plugin copies use ~/.proof-of-life/data (paths.js)
+const DATA_DIR = require('./paths.js').dataDir(__dirname);
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -699,7 +700,7 @@ const server = http.createServer(async (req, res) => {
   if (url === '/health') return json(res, 200, { ok: true, operators: Object.keys(state.operators).length });
   if (url.startsWith('/api/') && !hostOk(req)) return json(res, 403, { error: 'unexpected Host header' });
   if (req.method === 'POST') { const bad = writeOk(req); if (bad) return json(res, bad.code, { error: bad.error }); }
-  if (url === '/api/version') { const disk = codeHash(); return json(res, 200, { api: API_LEVEL, build: BUILD, disk, stale: disk !== BUILD, sxv: Skills.SXV, maxLevel: Skills.MAX_LEVEL, skills: Skills.SKILLS.length, telemetry: Telemetry.status(DATA_DIR) }); }
+  if (url === '/api/version') { const disk = codeHash(); return json(res, 200, { api: API_LEVEL, build: BUILD, disk, stale: disk !== BUILD, pid: process.pid, sxv: Skills.SXV, maxLevel: Skills.MAX_LEVEL, skills: Skills.SKILLS.length, telemetry: Telemetry.status(DATA_DIR) }); }
 
   // onboarding for a new operator on a hosted server -> returns their token
   if (req.method === 'POST' && url === '/api/register') {

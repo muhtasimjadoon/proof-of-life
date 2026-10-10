@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  install-smoke:
+    name: install smoke (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        node: [18, 20]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Syntax check
+        shell: bash
+        run: for f in *.js *.mjs hooks/*.mjs scripts/*.mjs public/*.js collector/*.js collector/*.mjs; do node --check "$f"; done
+      - name: Unit tests
+        run: npm test
+      # clone, npx (npm pack + npm exec) and plugin paths: install hooks into a
+      # temp settings file (POL_SETTINGS), start a server on a temp data dir,
+      # pipe fake hook JSON into the three hooks, check a creature hatches and
+      # its signature checks out, then uninstall cleanly
+      - name: Install smoke test
+        run: node scripts/smoke.mjs

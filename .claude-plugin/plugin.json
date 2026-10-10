@@ -1,0 +1,9 @@
+{
+  "name": "proof-of-life",
+  "displayName": "Proof of Life",
+  "version": "1.0.0",
+  "description": "A weekly report of what your Claude Code agents did, by type of work. Every run hatches a creature: a signed, tamper-evident record of that run, kept on your machine.",
+  "author": { "name": "Muhtasim Jadoon" },
+  "license": "MIT",
+  "keywords": ["hooks", "agent-report", "ai-agents", "tamagotchi"]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "proof-of-life",
+  "description": "Proof of Life: a weekly report of what your agents did, by type of work.",
+  "owner": { "name": "Muhtasim Jadoon" },
+  "plugins": [
+    {
+      "name": "proof-of-life",
+      "source": "./",
+      "description": "Every Claude Code run hatches a creature shaped by the work it did. Local server, counts only, tamper-evident records."
+    }
+  ]
+}

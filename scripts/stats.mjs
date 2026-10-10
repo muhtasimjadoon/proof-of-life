@@ -7,9 +7,11 @@
 //
 //   node scripts/stats.mjs [path/to/state.json] [--since YYYY-MM-DD] [--json]
 //
-// Default path: data/state.json next to this repo. The file is only read.
+// Default path: state.json in your data folder (data/ in a git clone,
+// ~/.proof-of-life/data in an npm, npx or plugin copy). The file is only read.
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -17,7 +19,7 @@ const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); if (i < 0) return null; const v = args[i + 1]; args.splice(i, 2); return v; };
 const since = flag('--since') || '2026-10-09';
 const asJson = args.includes('--json');
-const file = path.resolve(args.find((a) => !a.startsWith('--')) || path.join(here, '..', 'data', 'state.json'));
+const file = path.resolve(args.find((a) => !a.startsWith('--')) || path.join(createRequire(import.meta.url)('../paths.js').dataDir(path.join(here, '..')), 'state.json'));
 if (!/^\d{4}-\d{2}-\d{2}$/.test(since)) { console.error('--since must be YYYY-MM-DD'); process.exit(2); }
 
 let state;

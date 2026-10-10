@@ -11,7 +11,8 @@
 // Usage stats (TELEMETRY.md) are off by default. Run in a terminal, it asks
 // once (y/N); run without one (CI, scripts) it never asks and stays off.
 // POL_SETTINGS=<path> points it at a different settings file (for testing).
-// POL_DATA_DIR=<dir> is where the choice is stored (default: data/).
+// POL_DATA_DIR=<dir> is where the choice is stored (default: paths.js, data/ in a
+// git clone, ~/.proof-of-life/data in an npm, npx or plugin copy).
 import fs from 'node:fs';
 import readline from 'node:readline/promises';
 import { createRequire } from 'node:module';
@@ -24,7 +25,7 @@ const settingsPath = process.env.POL_SETTINGS || path.join(os.homedir(), '.claud
 const uninstall = process.argv.includes('--uninstall');
 const MARK = '--pol'; // every hook command we write ends with this marker
 const KEEP_BACKUPS = 3;
-const dataDir = process.env.POL_DATA_DIR || path.join(here, 'data');
+const dataDir = createRequire(import.meta.url)('./paths.js').dataDir(here);
 const Telemetry = createRequire(import.meta.url)('./telemetry.js');
 const telArg = (process.argv.find((a) => a.startsWith('--telemetry=')) || '').split('=')[1];
 if (telArg !== undefined && !/^(on|off)$/.test(telArg)) { console.error('--telemetry takes on or off'); process.exit(2); }
@@ -111,10 +112,10 @@ fs.renameSync(tmp, settingsPath);
 
 if (replaced.size && !uninstall) console.log(`Replaced hooks from another Proof of Life copy:\n  ${[...replaced].join('\n  ')}`);
 if (uninstall) {
-  console.log('Proof of Life hooks removed. Your creatures are still in data/.');
+  console.log(`Proof of Life hooks removed. Your creatures are still in ${dataDir}`);
 } else {
   console.log('Proof of Life hooks installed.');
-  console.log('Next: run `node server.js` in this folder and open http://localhost:4855');
+  if (!process.env.POL_FROM_CLI) console.log('Next: run `node server.js` in this folder and open http://localhost:4855 (or run `node cli.mjs` to do both)');
   console.log('Then use Claude Code as usual. Every run longer than 10 seconds hatches a creature.');
 }
 await telemetryChoice();
