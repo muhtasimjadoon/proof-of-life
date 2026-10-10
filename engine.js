@@ -137,21 +137,27 @@ function domainFromActivity(activity) {
 // Mythic, the top tier. A solo operator reaches it only from real run data,
 // decided at hatch and signed with the rest of the run (so it can only ever be
 // earned by new runs; every older creature keeps the tier it was signed with):
-//   Legion:  a run of 2 hours or more (not a session left open for a day) that
-//            dispatched 10 or more subagents and did not fail
+//   Legion:  rule 2 (new creatures): a run that dispatched 10 or more subagents,
+//            did not fail and got enough done to earn Legendary. Rule 1 (older
+//            creatures): a run of 2 hours or more with 10+ subagents.
 //   Devoted: the first run of the 30th (60th, 90th...) day in a row you ran agents
 // Cross-feeding with another operator also breeds Mythics (see breedCreature).
 const MYTHIC = { tier: 'Mythic', chip: '#ff7bd0', index: 5 };
 const MYTHIC_RUN_MS = 2 * 60 * 60 * 1000;
 const MYTHIC_SUBAGENTS = 10;
 const MYTHIC_STREAK = 30;
-function mythicReason(run, durationMs) {
+function mythicReason(run, durationMs, outcome) {
   if (!run || run.error) return null;
-  if (durationMs >= MYTHIC_RUN_MS && durationMs <= Skills.OPEN_SESSION_MS && (run.subagents || 0) >= MYTHIC_SUBAGENTS) return 'Legion';
+  // rule 2: Legion is 10+ subagents on a run whose outcome earns Legendary (run length plays no part)
+  if (run.ruleVersion === 2) { if ((run.subagents || 0) >= MYTHIC_SUBAGENTS && Skills.outcomeTier(outcome) >= 4) return 'Legion'; }
+  else if (durationMs >= MYTHIC_RUN_MS && durationMs <= Skills.OPEN_SESSION_MS && (run.subagents || 0) >= MYTHIC_SUBAGENTS) return 'Legion';
   const d = Number(run.streakDays) || 0;
   if (run.firstOfDay && d >= MYTHIC_STREAK && d % MYTHIC_STREAK === 0) return 'Devoted';
   return null;
 }
+
+// rule 2: run length drives only this trait (a session left open over a day never earns it)
+const MARATHON_MS = 20 * 60 * 1000;
 
 function rarityFor(durationMs) {
   for (let i = 0; i < RARITY.length; i++) {
@@ -206,9 +212,15 @@ function computeCreature(run) {
   const domainSource = actDomain ? 'activity' : (run.domainSource || 'prompt');
   const toolCalls = run.activity && run.activity.toolCalls != null ? run.activity.toolCalls : null;
   const species = speciesByKey(domainKey);
+  // rule 2 (live hatches from 2026-10-10 on): rarity from what the run got done.
+  // Older creatures keep rule 1 (run length) and are never re-minted.
+  const v2 = run.ruleVersion === 2;
+  const outcome = v2 ? (Skills.outcomeOf(run.activity) || Skills.outcomeOf({ toolCalls: 0 })) : null;
   // only a live hatch may mint a Mythic: migrations, samples and demos never do
-  const mythic = run.allowMythic ? mythicReason(run, durationMs) : null;
-  const rarity = mythic ? Object.assign({ maxMs: Infinity }, MYTHIC) : rarityFor(durationMs);
+  const mythic = run.allowMythic ? mythicReason(run, durationMs, outcome) : null;
+  const rarity = mythic ? Object.assign({ maxMs: Infinity }, MYTHIC)
+    : v2 ? Object.assign({ index: Skills.outcomeTier(outcome) }, RARITY[Skills.outcomeTier(outcome)])
+    : rarityFor(durationMs);
   const bornAt = run.endedAt || Date.now();
   const tzo = run.tzOffset != null && isFinite(run.tzOffset) ? Math.max(-840, Math.min(840, Math.round(run.tzOffset))) : null;
   const hour = localHour(bornAt, tzo);
@@ -224,7 +236,7 @@ function computeCreature(run) {
   const traits = [];
   if (mythic) traits.push(mythic);               // Legion (2h+, 10+ subagents) or Devoted (30 days in a row)
   if (hour < 5) traits.push('Nightshift');       // ran while the world slept
-  if (rarity.index >= 3) traits.push('Marathon'); // a long, hard run
+  if (v2 ? durationMs >= MARATHON_MS && durationMs <= OPEN_SESSION_MS : rarity.index >= 3) traits.push('Marathon'); // a long run
   if (subagents >= 5) traits.push('Swarm');       // you commanded a fleet
   if (error) traits.push('Scarred');              // it survived a failure
 
@@ -291,6 +303,7 @@ function computeCreature(run) {
     domainSource,
     toolCalls,
   };
+  if (v2) { c.ruleVersion = 2; c.outcome = outcome; } // ruleVersion is signed; outcome is derived from the signed activity
   // the cleaned activity counts (no file names, no args) so skills can be
   // recomputed if the formulas change; signed as a hash, see server.js
   if (run.activity && typeof run.activity === 'object') c.activity = run.activity;
@@ -335,10 +348,9 @@ function xpGain(justCompleted) {
   return 50 + (justCompleted.rarity.index * 25); // a rarer run raises the herd more
 }
 
-// Power: an uncapped number for the Board. Every real run adds points for the
-// machine time it took (log-scaled, a run counts at most 4 hours) and the rarity
-// it hatched; a healed survivor adds a little. Sessions left open add nothing.
-// See Skills.runPoints. weekScore is the same points from the last 7 days.
+// Power: an uncapped number for the Board. Every run adds points for what it got
+// done (its outcome score, log-scaled), never for how long it ran; a healed
+// survivor adds a little. See Skills.runPoints. weekScore is the same points from the last 7 days.
 function operatorScore(creatures) {
   let s = 0;
   for (const c of creatures) s += Skills.runPoints(c);
@@ -354,7 +366,7 @@ function weekScore(creatures, now) {
 // ---- cross-breeding: a hybrid neither operator could make alone -----------
 // Deterministic from BOTH parents + the shared domain, so the same two operators
 // working the same domain always produce the same species — and one operator
-// can never mint it alone (that is the un-fakeable, network-effect moat).
+// can never mint it alone (the network effect: it needs two operators).
 function _rgb(h) { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map((x) => x + x).join(''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
 function _hex(r, g, b) { return '#' + [r, g, b].map((x) => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, '0')).join(''); }
 function blend(a, b, t) { const x = _rgb(a), y = _rgb(b); return _hex(x[0] + (y[0] - x[0]) * t, x[1] + (y[1] - x[1]) * t, x[2] + (y[2] - x[2]) * t); }
@@ -438,6 +450,9 @@ module.exports = {
   MYTHIC_RUN_MS,
   MYTHIC_SUBAGENTS,
   MYTHIC_STREAK,
+  MARATHON_MS,
+  outcomeOf: Skills.outcomeOf,
+  outcomeTier: Skills.outcomeTier,
   mythicReason,
   LEVEL_LABELS,
   breedCreature,

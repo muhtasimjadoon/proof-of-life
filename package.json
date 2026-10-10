@@ -1,7 +1,7 @@
 {
   "name": "proof-of-life",
   "version": "1.0.0",
-  "description": "Every Claude Code run hatches a creature: a signed, unfakeable record of the work your agents actually did.",
+  "description": "A weekly report of what your Claude Code agents did, by type of work. Every run hatches a creature: a signed, tamper-evident record of that run.",
   "license": "MIT",
   "author": "Muhtasim Jadoon",
   "main": "server.js",
@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node server.js",
     "install-hooks": "node install.mjs",
-    "uninstall-hooks": "node install.mjs --uninstall"
+    "uninstall-hooks": "node install.mjs --uninstall",
+    "stats": "node scripts/stats.mjs"
   },
-  "keywords": ["claude-code", "hooks", "ai-agents", "tamagotchi", "proof-of-work"]
+  "keywords": ["claude-code", "hooks", "ai-agents", "tamagotchi", "agent-report"]
 }

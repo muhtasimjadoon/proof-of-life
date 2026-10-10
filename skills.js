@@ -285,12 +285,66 @@
     return g;
   }
 
+  // ---- outcome: what a run got done, from its activity counts only -----------
+  // Rule 2 (creatures hatched from 2026-10-10 on carry ruleVersion: 2): rarity
+  // comes from this score, never from how long the run took, so a session left
+  // idle for hours stays Common. Inputs are counts the hooks already send: tool
+  // calls, failed calls, tool names, and how many git commits and pushes ran.
+  const OUTCOME = {
+    perCall: 1, callCap: 200,        // each tool call that did not fail
+    perFamily: 5,                    // each distinct kind of tool used
+    perFile: 3, fileCap: 60,         // each Write / Edit / MultiEdit / NotebookEdit call
+    perCommit: 10, commitCap: 10,
+    perPush: 15, pushCap: 5,
+    perError: 3,                     // each tool call that came back as an error
+    // minimum score for each tier, Common..Legendary; Legendary also needs 3+ kinds of tool
+    tiers: [0, 20, 50, 120, 250], legendaryFamilies: 3,
+  };
+  const META_TOOL = /^(toolsearch|todowrite|todoread|cronlist|croncreate|crondelete|exitplanmode|enterplanmode|subagenthandback|listmcpresourcestool|readmcpresourcetool)$/i;
+  function toolFamily(name) {
+    const t = String(name || '').toLowerCase();
+    if (!t || t === 'other' || META_TOOL.test(t)) return null;
+    if (EDIT_TOOL.test(t)) return 'edit';
+    if (READ_TOOL.test(t)) return 'read';
+    if (SHELL_TOOL.test(t)) return 'shell';
+    if (/^(agent|task|workflow|skill)$/.test(t)) return 'agent';
+    for (const r of TOOL_RULES) if (r.re.test(t)) return r.skill;
+    return t.startsWith('mcp__') ? 'mcp' : 'other-tool';
+  }
+  // activity -> { score, ok, families, files, commits, pushes, errors }; null without activity
+  function outcomeOf(a) {
+    if (!a || typeof a !== 'object') return null;
+    const calls = Math.max(0, a.toolCalls | 0), errors = Math.max(0, Math.min(calls, a.toolErrors | 0));
+    const fams = new Set(); let files = 0;
+    for (const [name, n] of Object.entries(a.tools || {})) {
+      const f = toolFamily(name); if (f) fams.add(f);
+      if (EDIT_TOOL.test(name)) files += Math.max(0, n | 0);
+    }
+    const git = a.git || {};
+    const commits = Math.max(0, git.commit | 0), pushes = Math.max(0, git.push | 0);
+    const ok = calls - errors, O = OUTCOME;
+    const score = Math.max(0, Math.min(ok, O.callCap) * O.perCall + fams.size * O.perFamily + Math.min(files, O.fileCap) * O.perFile
+      + Math.min(commits, O.commitCap) * O.perCommit + Math.min(pushes, O.pushCap) * O.perPush - errors * O.perError);
+    return { score, ok, families: fams.size, files, commits, pushes, errors };
+  }
+  // the tier index (0 Common .. 4 Legendary) an outcome earns under rule 2
+  function outcomeTier(o) {
+    if (!o) return 0;
+    let i = 0;
+    for (let k = 0; k < OUTCOME.tiers.length; k++) if (o.score >= OUTCOME.tiers[k]) i = k;
+    if (i === 4 && o.families < OUTCOME.legendaryFamilies) i = 3;
+    return i;
+  }
+
   // ---- points: one honest, uncapped number per run (Power and the weekly race) ----
+  // From what the run got done (its outcome score, log-scaled), never from how
+  // long it ran. A run with no activity counts (older hooks, or nothing done)
+  // adds only the base 2. A healed survivor adds a little.
   const TIER_POINTS = { Common: 1, Uncommon: 3, Rare: 8, Epic: 20, Legendary: 50, Mythic: 120 };
   function runPoints(c) {
-    if (!c || c.bredBy || !c.rarity || isOpen(c)) return 0;
-    const m = minutesOf(c);
-    return Math.round(2 + 5 * Math.log2(1 + m) + (TIER_POINTS[c.rarity.tier] || 0) + (c.status === 'healed' ? 5 : 0));
+    if (!c || c.bredBy || !c.rarity) return 0;
+    const o = outcomeOf(c.activity);
+    return Math.round(2 + (o ? 8 * Math.log2(1 + o.score) : 0) + (c.status === 'healed' ? 5 : 0));
   }
 
   // ---- operator view: every skill, levels, recent gains, milestones ---------
@@ -554,6 +608,6 @@
     SKILL_BANDS, TOTAL_BANDS, SKILLS, SKILL_KEYS, WORK_KEYS, LEGACY_WORK,
     EXT, CMD, CMD_NEUTRAL, KNOWN_EXTS, KNOWN_CMDS,
     runXpOf, workScores, computeSkillXp, computeOperatorSkills, dayKey, dayIndex, OPEN_SESSION_MS,
-    TIER_POINTS, runPoints,
+    TIER_POINTS, runPoints, OUTCOME, outcomeOf, outcomeTier, toolFamily,
   };
 });

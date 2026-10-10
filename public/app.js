@@ -1172,7 +1172,7 @@ function tileHTML(c, o) {
   const isNew = !o.noNew && freshIds.has(c.id);
   const cls = ['tile', isNew ? 'new' : '', c.rarity.tier === 'Legendary' ? 'leg' : '', c.rarity.tier === 'Mythic' ? 'myth' : '', v && v.shiny ? 'shiny' : ''].filter(Boolean).join(' ');
   return `<div class="${cls}" style="--tier:${c.rarity.chip}" data-id="${escapeXml(c.id)}" data-k="${tileKey(c)}">
-    <div class="t-top"><span class="rchip" style="color:${c.rarity.chip}">${c.rarity.tier}</span><span class="t-tag" title="${c.att ? 'signed · verifiable · fingerprint ' + escapeXml(c.att.fp) : 'seed serial'}">${tagOf(c)}${c.att ? '<i class="verified inline">✓</i>' : ''}</span></div>
+    <div class="t-top"><span class="rchip" style="color:${c.rarity.chip}">${c.rarity.tier}</span><span class="t-tag" title="${c.att ? 'signed · tamper-evident · fingerprint ' + escapeXml(c.att.fp) : 'seed serial'}">${tagOf(c)}${c.att ? '<i class="verified inline">✓</i>' : ''}</span></div>
     <div class="tile-art">${art}${v && v.shiny ? '<span class="shinychip" title="Shiny: about 1 in 64">✦ Shiny</span>' : ''}<button class="tsave" type="button" title="Save this creature's share card" aria-label="Save share card">${SAVE_IC}<span>Card</span></button></div>
     <div class="nm" title="${escapeXml(c.fullName)}">${escapeXml(shortName(c))}</div>
     <div class="var">${escapeXml(c.speciesName + (v ? ' · ' + v.full : ''))}</div>
@@ -1285,6 +1285,11 @@ function eggSVG(seed, glow, size, o) {
 function eggForecast(ms, subs) {
   const R = rules(), tiers = R.rarity, my = R.mythic || RULES_FALLBACK.mythic;
   if (ms < (R.minHatchMs || 10000)) return { now: null, html: `Too young to hatch · it needs ${fmtClock((R.minHatchMs || 10000) - ms)} more`, pct: 0, idx: -1 };
+  // rule 2: rarity is set at hatch from what the run got done, so time only fills the Marathon meter
+  if (R.rarityRule === 2) {
+    const mm = R.marathonMs || 1200000;
+    return { now: null, idx: -1, pct: Math.min(1, ms / mm), html: `Rarity is set when it hatches, from what the run gets done: tool calls that worked, kinds of tools, files written, commits${subs >= my.subagents ? ` · <b style="color:${TIERC.Mythic}">Mythic</b> if it earns Legendary without failing` : ''} · ${ms < mm ? `Marathon in ${fmtClock(mm - ms + 1000)}` : 'Marathon earned'}` };
+  }
   let idx = tiers.findIndex((t) => t.maxMs == null || ms <= t.maxMs); if (idx < 0) idx = tiers.length - 1;
   const now = tiers[idx].tier, bits = [];
   for (let i = idx; i < tiers.length - 1; i++) {
@@ -1337,8 +1342,8 @@ function countVisit() { if (visitCounted) return; visitCounted = true; try { loc
 function welcomeHTML() {
   const w = welcomeState();
   if (w.off) return '';
-  if (w.n <= 1) return `<div class="welcome"><button class="wx" id="wx" title="dismiss" aria-label="dismiss">✕</button><h2>Meet your creatures</h2><p>Every time Claude works on a task for you, a creature hatches from what really happened in that run. Longer runs hatch rarer creatures, the tools it used decide its species, and every one is a one-off: its colorway, accessory and face come from its signed seed.</p></div>`;
-  return `<div class="tip"><span>Every Claude run hatches one. Longer runs hatch rarer ones, about 1 in 64 is Shiny, and the runs that follow raise them.</span><button class="wx" id="wx" title="dismiss" aria-label="dismiss">✕</button></div>`;
+  if (w.n <= 1) return `<div class="welcome"><button class="wx" id="wx" title="dismiss" aria-label="dismiss">✕</button><h2>Meet your creatures</h2><p>Every time Claude works on a task for you, a creature hatches from what really happened in that run. Runs that get more done hatch rarer creatures, the tools it used decide its species, and every one is a one-off: its colorway, accessory and face come from its signed seed.</p></div>`;
+  return `<div class="tip"><span>Every Claude run hatches one. Runs that get more done hatch rarer ones, about 1 in 64 is Shiny, and the runs that follow raise them.</span><button class="wx" id="wx" title="dismiss" aria-label="dismiss">✕</button></div>`;
 }
 function showcaseHTML(c) {
   const v = variantOf(c), st = stageOf(c), gains = gainsOf(c).slice(0, 3), T = c.rarity.tier, glow = (ART_PAL[c.speciesKey] || ART_PAL.wisp).glow;
@@ -1460,7 +1465,7 @@ function bindCollection(stage) {
 
 // ---- the Dex (computed here from your signed creatures and variants.js) ----
 const SPECIES_HOW = { cog: 'a code run (code files, build or package commands)', scholar: 'a research run (web search and fetch)', moth: 'a writing run (docs and text files)', prism: 'a design run (design tools, image files)', lumen: 'a video run (video tools, ffmpeg, media files)', hydra: 'an outreach run (mail, LinkedIn, CRM, chat tools)', wisp: 'a browser or general run' };
-const TIER_HOW = { Common: 'that ends within 20 seconds (but after 10)', Uncommon: 'of 20 to 90 seconds', Rare: 'of 90 seconds to 5 minutes', Epic: 'of 5 to 20 minutes', Legendary: 'over 20 minutes', Mythic: 'of 2 hours or more with 10+ subagents, or the first run of a 30th day in a row' };
+const TIER_HOW = { Common: 'that gets a little done (under 20 points)', Uncommon: 'worth 20 to 49 points', Rare: 'worth 50 to 119 points', Epic: 'worth 120 to 249 points', Legendary: 'worth 250+ points with 3+ kinds of tool', Mythic: 'that earns Legendary with 10+ subagents and no failure, or the first run of a 30th day in a row' };
 let dexMemo = { key: '', val: null };
 function dexData() {
   const key = latest.creatures.length + '|' + (latest.creatures[0] ? latest.creatures[0].id : '') + '|' + (bestiaryData ? bestiaryData.breeds.length : 0);
@@ -1495,7 +1500,7 @@ function dexNext() {
     if (!found.has('m:' + sk + ':holo')) out.push({ w: 42, title: `A Holo ${name}`, how: `a Legendary ${name}: 4 in 10 Legendaries are Holo` });
     const missingCw = PV.COLORWAYS[sk].filter((cw) => !PV.SET_TIERS.some((t) => found.has('ct:' + sk + ':' + cw.key + ':' + t)));
     for (const cw of missingCw) out.push({ w: 20, title: `A ${cw.name} ${name}`, how: `about 1 in 9 ${name}s hatches in ${cw.name}` });
-    if (!found.has('my:' + sk)) out.push({ w: 60, title: `A Mythic ${name}`, how: `${SPECIES_HOW[sk]} of 2 hours or more with 10+ subagents, or cross-feed with another operator` });
+    if (!found.has('my:' + sk)) out.push({ w: 60, title: `A Mythic ${name}`, how: `${SPECIES_HOW[sk]} that earns Legendary with 10+ subagents, or cross-feed with another operator` });
   }
   return out.sort((a, b) => a.w - b.w);
 }
@@ -1508,7 +1513,7 @@ function sec_bestiary() {
       <div class="dh-ring">${ringSVG(132, pct, { color: '#b28dff', gradient: ['#ff7bd0', '#b28dff', '#67a8f0', '#6ee7a5'] }, `<text x="66" y="72" text-anchor="middle" class="ring-n big">${Math.round(pct * 100)}%</text>`, { sw: 11 })}</div>
       <div class="dh-txt"><span class="eyebrow">Completion</span><h2><span class="num">${fmtN(found.size)}</span> of <span class="num">${fmtN(slots.length)}</span> slots found</h2>
         <div class="dh-stats">${[['set', 'Colorway × rarity', 'set'], ['mythic', 'Mythics', 'mythic'], ['shiny', 'Shinies', 'shiny'], ['edition', 'Gold & Holo', 'edition']].map(([k, label]) => { const all = slots.filter((s) => s.kind === k), f = all.filter((s) => found.has(s.id)).length; return `<div class="stat"><b>${fmtN(f)}<small>/${fmtN(all.length)}</small></b><span>${label}</span></div>`; }).join('')}</div>
-        <p class="note">Every slot is filled by a real, signed creature: a species and rarity from what the run did and how long it ran, a colorway and edition from its seed. ${sum.sets ? `${plural(sum.sets, 'full colorway set')} complete.` : 'No full colorway set yet: one colorway at every hatch rarity.'}</p></div></div>`;
+        <p class="note">Every slot is filled by a real, signed creature: a species from what the run did, a rarity from what it got done (from how long it ran, for creatures hatched before Oct 10), a colorway and edition from its seed. ${sum.sets ? `${plural(sum.sets, 'full colorway set')} complete.` : 'No full colorway set yet: one colorway at every hatch rarity.'}</p></div></div>`;
   // species x rarity: the first creature that filled each cell, or a silhouette
   const grid = `<div class="panel dex-grid-panel"><div class="p-head"><h2>Species × rarity</h2><span class="note">tap a species for its colorway sets</span></div><div class="dex-grid"><div class="dg-h"></div>${TIERS.map((t) => `<div class="dg-h" style="color:${TIERC[t]}"><span class="lg">${t}</span><span class="sm">${t.slice(0, 3)}</span></div>`).join('')}
     ${PV.SPECIES_KEYS.map((sk) => {
@@ -1539,7 +1544,7 @@ function dexDetail(sk) {
 }
 
 // ---- section: how it works (rules drawn by the real renderer; your own runs as the examples) ----
-const RARITY_RULES = [['Common', 'up to 20s'], ['Uncommon', 'up to 90s'], ['Rare', 'up to 5m'], ['Epic', 'up to 20m'], ['Legendary', 'over 20m'], ['Mythic', '2h+ run with 10+ subagents, a 30-day streak, or cross-feeding']];
+const RARITY_RULES = [['Common', 'under 20 points'], ['Uncommon', '20+ points'], ['Rare', '50+ points'], ['Epic', '120+ points'], ['Legendary', '250+ points, 3+ kinds of tool'], ['Mythic', 'Legendary work with 10+ subagents, a 30-day streak, or cross-feeding']];
 const RARITY_ADDS = { Common: 'glossy vinyl, a colorway and a face of its own', Uncommon: '+ a pattern and an accessory', Rare: '+ metal trim and glowing eyes', Epic: '+ glowing markings and an aura', Legendary: '+ Gold Chrome or Holo body, its own wings, bigger crest, star eyes', Mythic: '+ an animated iridescent body and a halo' };
 const SPECIES_RULES = [['cog', 'Engineering', 'code files, build and package commands'], ['scholar', 'Research', 'web search and fetch'], ['moth', 'Writing', 'docs and text files'], ['prism', 'Design', 'design tools and image files'], ['lumen', 'Video', 'video tools, ffmpeg, media files'], ['hydra', 'Outreach', 'mail, LinkedIn, CRM and chat tools'], ['wisp', 'General', 'browser automation, or nothing classifiable']];
 function sec_proof() {
@@ -1599,9 +1604,9 @@ function sec_proof() {
 
   const prov = `<div class="panel" style="margin-top:16px"><div class="p-head"><h2>Provenance</h2><span class="note">ed25519 attestation</span></div>
     <div class="stats-row"><div class="stat"><b>${fmtN(latest.creatures.filter((c) => c.att).length)}</b><span>of your creatures signed</span></div><div class="stat"><b class="mono" style="font-size:15px">${pubInfo ? escapeXml(pubInfo.fingerprint.slice(0, 12)) : '—'}</b><span>attestor key</span></div><div class="stat"><b>ed25519</b><span>algorithm</span></div></div>
-    <p class="note" style="margin-top:12px">Every creature carries an Ed25519 signature over its run's real facts: owner, duration, domain, rarity and seed. Change any one and the signature breaks, so rarity is proven rather than claimed. Its look (colorway, accessory, face, Shiny) is read off the signed seed, so it can't be faked either. Open any creature and press Verify.</p></div>`;
+    <p class="note" style="margin-top:12px">Every creature carries an Ed25519 signature over its run's recorded facts: owner, duration, domain, rarity, seed and activity counts. It is tamper-evident: nobody can change a record later without it showing. Its look (colorway, accessory, face, Shiny) is read off the signed seed, so it can't be edited either. The signing key lives on your machine, so this is your own record, not an audit. Open any creature and press Check signature.</p></div>`;
 
-  return `<div class="panel tinted"><div class="p-head"><h2>Rarity is how long Claude really worked</h2><span class="note">every tier is a visible upgrade</span></div>${rarity}</div>
+  return `<div class="panel tinted"><div class="p-head"><h2>Rarity is what the run got done</h2><span class="note">every tier is a visible upgrade</span></div>${rarity}<p class="note">Points: 1 per tool call that worked (up to 200), 5 per kind of tool used, 3 per file written or edited, 10 per git commit, 15 per push, minus 3 per failed call. Run length only earns the Marathon trait (20 minutes or more). Creatures hatched before Oct 10 keep the tier their run length gave them.</p></div>
   <div class="panel" style="margin-top:16px"><div class="p-head"><h2>Every creature is one of a kind</h2><span class="note">8 colorways a species · 6 patterns · 7 accessories · 7 faces · 1 in ${PV ? PV.SHINY_ODDS : 64} Shiny</span></div>${variety}<p class="note">Same species, same rarity: the look is read off each run's signed seed, so no two runs hatch the same creature.</p></div>
   <div class="grid cols-2" style="margin-top:16px">
     <div class="panel"><div class="p-head"><h2>Species is what the run did</h2></div>${species}<p class="note">Read from tool names, file extensions and command names only. Never prompts, paths, file contents or arguments.</p></div>
@@ -1773,7 +1778,7 @@ function podiumHTML() {
 function sec_board() {
   if (!boardData.length) return `<p class="empty">No operators with creatures yet.</p>`;
   const real = boardData.filter((r) => !r.sample).length;
-  const lead = `<div class="section-lead">Standing is this week's points: every real run adds points for the machine time it took and the rarity it hatched. Power is the same points for all time, and it never resets. Neither can be bought.</div>`;
+  const lead = `<div class="section-lead">Standing is this week's points: every run adds points for what it got done (tool calls that worked, kinds of tools, files written, commits and pushes, minus failed calls), never for how long it ran. Power is the same points for all time, and it never resets. Neither can be bought.</div>`;
   const rows = boardData.map((r) => `<div class="brow ${r.you ? 'you' : ''}" data-handle="${escapeXml(r.handle)}">
     <div class="rank">${r.rank}</div><div class="ava" style="background:${r.accent || '#67e39a'}">${initials(r.handle)}</div>
     <div class="who"><div class="who-top"><b>@${escapeXml(r.handle)}</b>${r.you ? '<span class="chip" style="color:var(--green)">you</span>' : r.sample ? '<span class="chip" style="color:var(--violet)">sample</span>' : ''}</div><span>${plural(r.runs, 'run')} · ${Number(r.hours || 0).toFixed(1)} hrs · ${escapeXml(r.topSpecies || '—')}</span></div>
@@ -2076,7 +2081,7 @@ function openModal(c) {
   if (!c) return;
   const gains = gainsOf(c).slice(0, 4), v = variantOf(c), st = stageOf(c);
   const rows = [['species', c.speciesName], ['rarity', c.rarity.tier], ['variant', v ? v.full + (v.shiny ? ' (Shiny)' : '') : '—'], ['face', v ? `${v.expression.name} · ${v.eyes.name} eyes` : '—'], ['level', lvLine(c)], ['serial', tagOf(c)], ['forged from', c.bredBy ? 'cross-feed · ' + c.domain + ' work' : originLine(c).replace(/^grew from /, '')], ['traits', c.traits && c.traits.length ? c.traits.join(', ') : 'none'], ['status', c.status === 'healthy' ? 'healthy' : c.status === 'healed' ? 'healed survivor' : 'sick · needs care'], [c.bredBy ? 'bred by' : 'born', c.bredBy ? '@' + c.bredBy.join(' + @') : new Date(c.bornAt).toLocaleString()]].map(([k, val]) => `<div class="row"><span>${k}</span><span>${escapeXml(val)}</span></div>`).join('');
-  const att = `<div class="att"><div class="att-row"><span>attestation</span><span class="mono">${c.att ? escapeXml(c.att.fp) + ' · ed25519' : 'unsigned'}</span></div><button id="verify" class="ghost">Verify signature</button><div id="vres" class="vres"></div></div>`;
+  const att = `<div class="att"><div class="att-row"><span>attestation</span><span class="mono">${c.att ? escapeXml(c.att.fp) + ' · ed25519' : 'unsigned'}</span></div><button id="verify" class="ghost">Check signature</button><div id="vres" class="vres"></div></div>`;
   document.getElementById('modal-card').classList.remove('wide');
   document.getElementById('modal-card').innerHTML = `<div class="m-art t-${c.rarity.tier.toLowerCase()}${v && v.shiny ? ' is-shiny' : ''}" style="--tier:${c.rarity.chip}">${creatureVisual(c, 220, { live: true })}</div><span class="chip" style="color:${c.rarity.chip}">${c.rarity.tier}</span>${v && v.shiny ? ' <span class="shinychip">✦ Shiny</span>' : ''}<h3>${escapeXml(c.fullName)}</h3><div class="m-var">${escapeXml(v ? v.full : c.speciesName)}</div>${gains.length ? `<div class="gains center">${gains.map(([k, val]) => `<span class="gain">+${fmtN(val)} ${escapeXml(skillName(k))}</span>`).join('')}</div>` : ''}<div class="rows">${rows}</div>${att}
     <div class="btns"><button class="primary" id="dl">Save card</button><button id="dlog" title="1200 × 630, for link previews">Wide card</button>${c.bredBy ? '' : '<button id="rv">Replay hatch</button>'}<button id="close">Close</button></div>`;
@@ -2091,8 +2096,8 @@ function openModal(c) {
     try {
       const r = await (await fetch('/api/verify?id=' + encodeURIComponent(c.id))).json();
       vres.className = 'vres ' + (r.valid ? 'ok' : 'bad');
-      vres.innerHTML = r.valid ? `✓ Verified · signed by attestor ${escapeXml(r.signer || '')}` : `✗ Invalid signature${r.reason ? ' · ' + escapeXml(r.reason) : ''}`;
-    } catch { vres.className = 'vres bad'; vres.textContent = 'verify request failed'; }
+      vres.innerHTML = r.valid ? `✓ Signature intact · signed by key ${escapeXml(r.signer || '')}` : `✗ Invalid signature${r.reason ? ' · ' + escapeXml(r.reason) : ''}`;
+    } catch { vres.className = 'vres bad'; vres.textContent = 'signature check failed'; }
   };
 }
 document.getElementById('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
@@ -2253,7 +2258,7 @@ function buildCardSVG(c, preset) {
   const g = gainsOf(c)[0], fp = c.att ? c.att.fp : null, handle = c.bredBy ? '@' + c.bredBy.join(' + @') : latest.me ? '@' + latest.me.handle : '';
   const inner = creatureInner(c, rngFor(c.seed)).split('__I__').join('-card');
   const TX = (x, y, size, fill, txt, o) => `<text x="${x}" y="${y}" text-anchor="${(o && o.a) || 'middle'}" font-family="${o && o.serif ? 'Georgia,serif' : o && o.mono ? 'ui-monospace,Consolas,monospace' : 'system-ui,Segoe UI,sans-serif'}" font-size="${size}" fill="${fill}"${o && o.ls ? ` letter-spacing="${o.ls}"` : ''}${o && o.w ? ` font-weight="${o.w}"` : ''}>${escapeXml(txt)}</text>`;
-  const verify = fp ? `verify ${fp} · ed25519` : 'unsigned';
+  const verify = fp ? `signed ${fp} · ed25519` : 'unsigned';
   const tierLabel = (v && v.shiny ? 'SHINY ' : '') + T.toUpperCase();
   if (preset === 'og') {
     const ax = 40, ay = 40, aw = 500, ah = 550;
@@ -2267,7 +2272,7 @@ function buildCardSVG(c, preset) {
       ${TX(590, 372, 22, '#9aa3bf', runFact(c) + (c.toolCalls ? ' · ' + plural(c.toolCalls, 'tool call') : ''), { a: 'start' })}
       ${g ? `<rect x="590" y="404" width="${Math.min(520, 40 + (fmtN(g[1]).length + skillName(g[0]).length + 2) * 15)}" height="48" rx="24" fill="${chip}" fill-opacity=".14" stroke="${chip}" stroke-opacity=".55"/>` + TX(614, 436, 22, '#f4f2ff', `+${fmtN(g[1])} ${skillName(g[0])}`, { a: 'start', w: 700 }) : ''}
       ${oddsOf(c).length ? TX(590, 492, 21, chip, oddsOf(c).join('  ·  '), { a: 'start', w: 700 }) : ''}
-      ${TX(590, 534, 19, '#7e88a6', verify, { a: 'start', mono: 1 })}${TX(590, 566, 19, '#646d88', `${handle} · minted from real machine hours`, { a: 'start' })}</svg>`;
+      ${TX(590, 534, 19, '#7e88a6', verify, { a: 'start', mono: 1 })}${TX(590, 566, 19, '#646d88', `${handle} · a tamper-evident record`, { a: 'start' })}</svg>`;
   }
   // portrait: a trading card. Frame, a foil art window, the odds pill under it, a name plate,
   // three or four real stats (a stat with no data is left out, never shown as a dash), a signed footer.
@@ -2291,7 +2296,7 @@ function buildCardSVG(c, preset) {
     ${TX(W / 2, 1036, 26, chip, `${v ? v.full : c.speciesName} · ${c.speciesName} · ${st.name}`, { w: 600 })}
     ${stats.map(([l, v2], i) => stat(i, l, v2)).join('')}
     ${TX(80, 1232, 24, '#f4f2ff', g ? `+${fmtN(g[1])} ${skillName(g[0])}` : c.traits && c.traits.length ? c.traits.join(' · ') : handle, { a: 'start', w: 700 })}
-    ${TX(W - 80, 1226, 19, '#8d96b3', verify, { a: 'end', mono: 1 })}${TX(W - 80, 1258, 18, '#646d88', `${handle ? handle + ' · ' : ''}minted from real machine hours`, { a: 'end' })}</svg>`;
+    ${TX(W - 80, 1226, 19, '#8d96b3', verify, { a: 'end', mono: 1 })}${TX(W - 80, 1258, 18, '#646d88', `${handle ? handle + ' · ' : ''}a tamper-evident record`, { a: 'end' })}</svg>`;
 }
 function buildSkillCardSVG(s) {
   const W = 1080, H = 1350, sk = latest.skills, col = s.band.color, r = 330, C = 2 * Math.PI * r, p = s.locked ? 0 : s.pct;

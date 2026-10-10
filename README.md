@@ -1,16 +1,18 @@
 # Proof of Life
 
-**Every Claude Code run hatches a creature. It's a signed, unfakeable record of the work your agents actually did.**
+**A weekly report of what your agents did, by type of work. Every Claude Code run hatches a creature; the creature is the hook.**
+
+Each creature is a signed, tamper-evident record of one run: nobody can change a record later without it showing. It is your own record, not an audit.
 
 You give an agent a task and wait. Proof of Life turns that wait into something: when a run starts, an egg starts growing. When it ends, a creature hatches, shaped by what the agent really did.
 
 - **Species is set by the work done**, read from the tools the agent called and the files it touched: Cog (code), Scholar (research), Moth (writing), Prism (design), Lumen (video), Hydra (outreach), Wisp (browser and computer use).
-- **Rarity is set by how long it ran:** Common (up to 20s), Uncommon (90s), Rare (5m), Epic (20m), Legendary (over 20m). Every tier is a visible upgrade: a pattern and an accessory, then metal trim and glowing eyes, glowing markings and an aura, and at Legendary a silhouette and finish upgrade: a Gold Chrome or Holo body, a pair of wings made for its species, a bigger crest and star eyes. Every creature wears at most one accessory, and nothing ever covers its eyes.
-- **Mythic, the top tier,** can't be bought or rushed. Solo, it takes a run of 2 hours or more with 10 or more subagents that doesn't fail (*Legion*), or the first run of a 30th day in a row (*Devoted*). Cross-feeding with another operator on the same server also breeds Mythic hybrids.
+- **Rarity is set by what the run got done**, scored from counts only: 1 point per tool call that worked (up to 200), 5 per kind of tool used, 3 per file written or edited (up to 60), 10 per `git commit` (up to 10), 15 per `git push` (up to 5), minus 3 per failed tool call. Common (under 20), Uncommon (20+), Rare (50+), Epic (120+), Legendary (250+ and 3 or more kinds of tool). Run length never raises rarity, so a session left idle for hours stays Common; it only earns the *Marathon* trait. Creatures hatched before Oct 10, 2026 keep the tier their run length gave them (rule 1); new ones carry `ruleVersion: 2` in their signed record. Every tier is a visible upgrade: a pattern and an accessory, then metal trim and glowing eyes, glowing markings and an aura, and at Legendary a silhouette and finish upgrade: a Gold Chrome or Holo body, a pair of wings made for its species, a bigger crest and star eyes. Every creature wears at most one accessory, and nothing ever covers its eyes.
+- **Mythic, the top tier,** can't be bought or rushed. Solo, it takes a run with 10 or more subagents that earns Legendary and doesn't fail (*Legion*), or the first run of a 30th day in a row (*Devoted*). Cross-feeding with another operator on the same server also breeds Mythic hybrids.
 - **Every creature is one of a kind.** Its colorway (8 per species), pattern, accessory, expression and eyes are read off its signed seed, and about 1 in 64 hatches **Shiny** in chrome or holo. Nothing about the look is stored, so it can't be edited either.
 - **It grows up.** Each good run raises the earlier creatures of its kind, on a 60-level curve that slows as it climbs (Lv 2 after one run, Lv 60 after about 400): hatchlings (Lv 1-5) sit in their shell, juveniles (6-14) grow their ornaments in, adults (15-27) are fully grown, elders (28-39) get bushy brows, whiskers and a warm glow, and the Exalted (40+) snow-white brows and a laurel.
-- **Traits come from real signals:** *Nightshift* (ran before 5am), *Marathon* (a long run), *Swarm* (5+ subagents), *Scarred* (survived a failure).
-- **Every creature is signed with Ed25519** the moment it hatches. The signature covers duration, species, tier, seed, tool-call count and owner, so changing any of them breaks it. You can only earn one with real machine hours.
+- **Traits come from real signals:** *Nightshift* (ran before 5am), *Marathon* (a run of 20 minutes or more), *Swarm* (5+ subagents), *Scarred* (survived a failure).
+- **Every creature is signed with Ed25519** the moment it hatches. The signature covers duration, species, tier, seed, tool-call count, a hash of the activity counts, the rule version and owner, so changing any of them later breaks it. That makes the record tamper-evident; see the threat model below for what it does not show.
 
 Same run, same creature, always. Runs under 10 seconds don't hatch, so the shelf stays meaningful.
 
@@ -34,9 +36,16 @@ Then use Claude Code as usual. To remove it: `node install.mjs --uninstall`.
 Everything runs on your machine. Your creatures live in `data/state.json`.
 
 - **Your prompts never leave the hook.** The prompt is classified locally into a species key, and only that key is sent to the local server.
-- **When a run ends,** the hook reads the transcript and sends only counts: tool names, file extensions from a known list, the first word of shell commands from a known list (`npm`, `git`, `ffmpeg`), and how many tool calls came back as errors. Anything else is sent as `other`. It never sends file paths, file names, file contents, command arguments, error text or the conversation. When `POL_SERVER` points at another machine, MCP tool names are reduced to a family (`mcp__outreach`, `mcp__browser`), so the host never learns which servers you run.
+- **When a run ends,** the hook reads the transcript and sends only counts: tool names, file extensions from a known list, the first word of shell commands from a known list (`npm`, `git`, `ffmpeg`), how many `git commit` and `git push` commands ran, and how many tool calls came back as errors. Anything else is sent as `other`. It never sends file paths, file names, file contents, command arguments, error text or the conversation. When `POL_SERVER` points at another machine, MCP tool names are reduced to a family (`mcp__outreach`, `mcp__browser`), so the host never learns which servers you run.
 - The server listens on `127.0.0.1` only, and on loopback it only answers to a loopback `Host`, so a web page that rebinds its domain to your machine can't read or change anything. Requests that change state must be JSON and must come from the page itself or from a hook: a request from another site is refused. Set `POL_HOST=0.0.0.0` to share it; remote requests then need an operator token to read a collection.
 - The hooks time out in 1.5 seconds and always exit cleanly. They never slow down or break a session, even if the server is off.
+
+## Threat model
+
+- **The signing key lives on your machine** (`data/attestor.json`). Whoever holds it can sign anything, so this is your own record, not an audit, and not a third-party attestation.
+- **What it shows:** a creature's recorded facts (owner, run length, species, tier, seed, counts) have not been changed since it was signed. Changing any of them later shows when you check the signature.
+- **What it does not show:** that the work was useful, that the counts came from a real Claude Code run (someone with the key or the server can post made-up counts), or what the work was about. The hooks only see counts, never content.
+- **Not supported: Cowork and cloud sessions.** Proof of Life needs Claude Code hooks running on your own machine.
 
 ## Skills
 
@@ -53,12 +62,12 @@ Skills that need tool activity stay locked, with a line saying what unlocks them
 
 The **Dex** has 308 slots: every species in every colorway at every hatch rarity, plus a Mythic, a Shiny and both Legendary editions per species. Each slot is filled by a real, signed creature, and it lists what to find next with the real rule for each.
 
-The **Board** ranks operators on this week's points: every real run adds points for the machine time it took and the rarity it hatched. **Power** is the same points for all time. Alone on a server, you race your own records: best day, best week, longest streak, longest run.
+The **Board** ranks operators on this week's points: every run adds points for what it got done (its outcome score above, log-scaled), never for how long it ran. Runs without activity counts (older hooks) add a base 2. **Power** is the same points for all time. Alone on a server, you race your own records: best day, best week, longest streak, longest run.
 
-## Verify a creature
+## Check a creature's signature
 
 ```bash
-curl "http://localhost:4855/api/verify?id=<creature id>"   # { "valid": true, ... }
+curl "http://localhost:4855/api/verify?id=<creature id>"   # { "valid": true, ... } = signature intact
 curl  http://localhost:4855/api/pubkey                       # the signing public key
 curl  http://localhost:4855/api/version                      # the running build
 ```
@@ -72,6 +81,7 @@ curl  http://localhost:4855/api/version                      # the running build
 | `POL_HOST` | listen address (default `127.0.0.1`; `0.0.0.0` to share) |
 | `POL_SERVER`, `POL_TOKEN` | point the hooks at a hosted server instead of localhost |
 | `node server.js --samples` | add sample operators to explore the Board and cross-breeding |
+| `node scripts/stats.mjs [state.json]` | share of your creatures by work type since 2026-10-09 (read-only; default `data/state.json`) |
 
 ## How it works
 

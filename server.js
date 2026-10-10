@@ -12,7 +12,7 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const {
   computeCreature, detectDomain, SPECIES, RARITY, operatorScore, weekScore, levelFor, xpGain, hashString, mulberry32, breedCreature,
-  durationLabel, isOpenSession, HERD_WINDOW, Skills, MYTHIC_RUN_MS, MYTHIC_SUBAGENTS, MYTHIC_STREAK,
+  durationLabel, isOpenSession, HERD_WINDOW, Skills, MYTHIC_RUN_MS, MYTHIC_SUBAGENTS, MYTHIC_STREAK, MARATHON_MS,
 } = require('./engine');
 const Variants = require('./public/variants.js');
 
@@ -101,10 +101,11 @@ function goalOf(medianDay) {
   return { type, target, auto: false };
 }
 
-// ---- signed attestations (proof of work life) ----------------------------
+// ---- signatures: a tamper-evident record --------------------------------
 // Each creature is signed with Ed25519 the moment it hatches. The signature
-// covers the run's real facts, so altering any of them (duration, rarity,
-// owner) breaks it. Anyone with the public key can verify independently.
+// covers the run's recorded facts, so changing any of them later (duration,
+// rarity, owner) shows. The key lives on this machine: it is the operator's own
+// record, not an audit. Anyone with the public key can check a signature.
 const KEY_FILE = path.join(DATA_DIR, 'attestor.json');
 let keys = null;
 function loadKeys() {
@@ -138,6 +139,7 @@ function creaturePayload(c) {
   const p = { op: c.op || null, id: c.id, dur: c.durationMs, dom: c.domainKey, err: !!c.error, tier: c.rarity.tier, seed: c.seed, born: c.bornAt };
   if (c.toolCalls != null) p.calls = c.toolCalls; // newer runs also sign how many tool calls the agent made
   if (c.activity) p.act = activityHash(c.activity); // and a hash of the activity counts skills are computed from
+  if (c.ruleVersion != null) p.ruleVersion = c.ruleVersion; // rule 2 creatures (rarity from outcomes) say so in the signed message
   return JSON.stringify(p);
 }
 function breedPayload(c) { return JSON.stringify({ breed: c.id, pair: c.bredBy, dom: c.domain, seed: c.seed, tier: c.rarity.tier, parents: c.parentFps || [] }); }
@@ -322,6 +324,7 @@ function mergeCounts(a, b) {
   const m = (x, y) => { const r = Object.assign({}, x || {}); for (const [k, v] of Object.entries(y || {})) r[k] = (r[k] || 0) + v; return r; };
   const out = { toolCalls: (a.toolCalls || 0) + (b.toolCalls || 0), tools: m(a.tools, b.tools), exts: m(a.exts, b.exts), cmds: m(a.cmds, b.cmds) };
   if (a.toolErrors != null || b.toolErrors != null) out.toolErrors = (a.toolErrors || 0) + (b.toolErrors || 0);
+  if (a.git || b.git) out.git = m(a.git, b.git);
   return out;
 }
 function tickSubagent(op, { id, activity }) {
@@ -401,6 +404,12 @@ function cleanActivity(a) {
   const out = { toolCalls, tools: counts(a.tools, tool), exts: counts(a.exts, ext), cmds: counts(a.cmds, cmd) };
   // newer hooks also count failed tool results (a number, never the error text)
   if (a.toolErrors != null && isFinite(Number(a.toolErrors))) out.toolErrors = Math.max(0, Math.min(toolCalls, Math.floor(Number(a.toolErrors) || 0)));
+  // and how many git commits and pushes ran (only these two keys, only when any ran)
+  if (a.git && typeof a.git === 'object') {
+    const g = {};
+    for (const k of ['commit', 'push']) { const n = Math.floor(Number(a.git[k])); if (n > 0) g[k] = Math.min(n, 1000); }
+    if (Object.keys(g).length) out.git = g;
+  }
   return out;
 }
 // days in a row this operator has run agents, counting today, and whether a run
@@ -427,7 +436,7 @@ function hatch(op, { id, error, subagents, activity, tzOffset }) {
     id: egg.id, startedAt, endedAt: now,
     domainKey: egg.domainKey, domainSource: 'prompt', activity: act,
     error: !!error, subagents: subagents != null ? Math.max(0, Math.min(1000, Math.floor(Number(subagents) || 0))) : (egg.subagents || 0),
-    tzOffset: tz,
+    tzOffset: tz, ruleVersion: 2, // live hatches use rule 2: rarity from outcomes
     allowMythic: true, ...streakInfo(op, now, tz),
   };
   const creature = computeCreature(run);
@@ -663,7 +672,8 @@ const MAX_OPERATORS = Number(process.env.POL_MAX_OPERATORS) || 1000;
 
 // the real thresholds the page needs to say what a running egg will become
 const RULES = {
-  rarity: RARITY.map((r) => ({ tier: r.tier, maxMs: isFinite(r.maxMs) ? r.maxMs : null })),
+  rarity: RARITY.map((r) => ({ tier: r.tier, maxMs: isFinite(r.maxMs) ? r.maxMs : null })), // rule 1, older creatures
+  rarityRule: 2, outcome: Skills.OUTCOME, marathonMs: MARATHON_MS, // rule 2: new creatures
   mythic: { runMs: MYTHIC_RUN_MS, subagents: MYTHIC_SUBAGENTS, streak: MYTHIC_STREAK },
   minHatchMs: MIN_HATCH_MS, openSessionMs: Skills.OPEN_SESSION_MS,
 };
