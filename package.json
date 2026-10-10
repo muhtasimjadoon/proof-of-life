@@ -10,7 +10,8 @@
     "start": "node server.js",
     "install-hooks": "node install.mjs",
     "uninstall-hooks": "node install.mjs --uninstall",
-    "stats": "node scripts/stats.mjs"
-  },
-  "keywords": ["claude-code", "hooks", "ai-agents", "tamagotchi", "agent-report"]
+    "stats": "node scripts/stats.mjs",
+    "metrics": "node scripts/metrics.mjs",
+    "test": "node scripts/metrics.test.mjs && node collector/test.mjs"
+  },  "keywords": ["claude-code", "hooks", "ai-agents", "tamagotchi", "agent-report"]
 }

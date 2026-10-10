@@ -15,13 +15,14 @@ const {
   durationLabel, isOpenSession, HERD_WINDOW, Skills, MYTHIC_RUN_MS, MYTHIC_SUBAGENTS, MYTHIC_STREAK, MARATHON_MS,
 } = require('./engine');
 const Variants = require('./public/variants.js');
+const Telemetry = require('./telemetry.js');
 
 // ---- build identity ------------------------------------------------------
 // The page is read from disk on every request, so after an update the browser
 // can run newer code than this process. /api/version lets the page notice and
 // ask for a restart instead of quietly showing empty panels.
 const API_LEVEL = 2; // bump when the page needs something new from the API
-const CODE_FILES = ['server.js', 'engine.js', 'skills.js', 'public/variants.js'];
+const CODE_FILES = ['server.js', 'engine.js', 'skills.js', 'public/variants.js', 'telemetry.js'];
 function codeHash() {
   const h = crypto.createHash('sha256');
   for (const f of CODE_FILES) { try { h.update(fs.readFileSync(path.join(__dirname, f))); } catch { h.update('missing:' + f); } }
@@ -698,7 +699,7 @@ const server = http.createServer(async (req, res) => {
   if (url === '/health') return json(res, 200, { ok: true, operators: Object.keys(state.operators).length });
   if (url.startsWith('/api/') && !hostOk(req)) return json(res, 403, { error: 'unexpected Host header' });
   if (req.method === 'POST') { const bad = writeOk(req); if (bad) return json(res, bad.code, { error: bad.error }); }
-  if (url === '/api/version') { const disk = codeHash(); return json(res, 200, { api: API_LEVEL, build: BUILD, disk, stale: disk !== BUILD, sxv: Skills.SXV, maxLevel: Skills.MAX_LEVEL, skills: Skills.SKILLS.length }); }
+  if (url === '/api/version') { const disk = codeHash(); return json(res, 200, { api: API_LEVEL, build: BUILD, disk, stale: disk !== BUILD, sxv: Skills.SXV, maxLevel: Skills.MAX_LEVEL, skills: Skills.SKILLS.length, telemetry: Telemetry.status(DATA_DIR) }); }
 
   // onboarding for a new operator on a hosted server -> returns their token
   if (req.method === 'POST' && url === '/api/register') {
@@ -769,7 +770,9 @@ const server = http.createServer(async (req, res) => {
     if (!op) return json(res, 401, { error: 'unknown operator' });
     if (url === '/api/run-start') return json(res, 200, { ok: true, egg: layEgg(op, body) });
     if (url === '/api/run-subagent') return json(res, 200, { ok: true, egg: tickSubagent(op, body) });
-    return json(res, 200, { ok: true, creature: hatch(op, body) });
+    const creature = hatch(op, body);
+    if (creature && telemetry) telemetry.nudge();
+    return json(res, 200, { ok: true, creature });
   }
 
   if (url.startsWith('/api/dev/') && !isLocal(req)) return json(res, 403, { error: 'local only' });
@@ -802,6 +805,9 @@ computeBreeds();
 saveState();
 // flush pending writes on shutdown
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { if (saveTimer) flushState(); process.exit(0); });
+
+// opt-in weekly counts-only heartbeat for the local operator (off unless you said yes; TELEMETRY.md)
+const telemetry = Telemetry.start(DATA_DIR, () => { const o = hasOwn(state.operators, config.handle) ? state.operators[config.handle] : null; return o ? o.creatures : []; });
 
 server.listen(PORT, HOST, () => {
   console.log(`[pol] Proof of Life live at http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}${HOST === '127.0.0.1' ? ' (this machine only; set POL_HOST to share)' : ''}`);

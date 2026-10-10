@@ -8,3 +8,4 @@ server.err.log
 *.pol-backup-*
 data/*.tmp
 data/*.unreadable-*
+data/telemetry.json

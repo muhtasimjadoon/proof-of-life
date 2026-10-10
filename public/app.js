@@ -1604,7 +1604,8 @@ function sec_proof() {
 
   const prov = `<div class="panel" style="margin-top:16px"><div class="p-head"><h2>Provenance</h2><span class="note">ed25519 attestation</span></div>
     <div class="stats-row"><div class="stat"><b>${fmtN(latest.creatures.filter((c) => c.att).length)}</b><span>of your creatures signed</span></div><div class="stat"><b class="mono" style="font-size:15px">${pubInfo ? escapeXml(pubInfo.fingerprint.slice(0, 12)) : '—'}</b><span>attestor key</span></div><div class="stat"><b>ed25519</b><span>algorithm</span></div></div>
-    <p class="note" style="margin-top:12px">Every creature carries an Ed25519 signature over its run's recorded facts: owner, duration, domain, rarity, seed and activity counts. It is tamper-evident: nobody can change a record later without it showing. Its look (colorway, accessory, face, Shiny) is read off the signed seed, so it can't be edited either. The signing key lives on your machine, so this is your own record, not an audit. Open any creature and press Check signature.</p></div>`;
+    <p class="note" style="margin-top:12px">Every creature carries an Ed25519 signature over its run's recorded facts: owner, duration, domain, rarity, seed and activity counts. It is tamper-evident: nobody can change a record later without it showing. Its look (colorway, accessory, face, Shiny) is read off the signed seed, so it can't be edited either. The signing key lives on your machine, so this is your own record, not an audit. Open any creature and press Check signature.</p>
+    ${telemetryLine()}</div>`;
 
   return `<div class="panel tinted"><div class="p-head"><h2>Rarity is what the run got done</h2><span class="note">every tier is a visible upgrade</span></div>${rarity}<p class="note">Points: 1 per tool call that worked (up to 200), 5 per kind of tool used, 3 per file written or edited, 10 per git commit, 15 per push, minus 3 per failed call. Run length only earns the Marathon trait (20 minutes or more). Creatures hatched before Oct 10 keep the tier their run length gave them.</p></div>
   <div class="panel" style="margin-top:16px"><div class="p-head"><h2>Every creature is one of a kind</h2><span class="note">8 colorways a species · 6 patterns · 7 accessories · 7 faces · 1 in ${PV ? PV.SHINY_ODDS : 64} Shiny</span></div>${variety}<p class="note">Same species, same rarity: the look is read off each run's signed seed, so no two runs hatch the same creature.</p></div>
@@ -1615,6 +1616,14 @@ function sec_proof() {
   <div class="panel" style="margin-top:16px"><div class="p-head"><h2>Raised by the runs that follow</h2><span class="note">each good run raises the earlier creatures of its kind, on 60 levels that slow as they climb</span></div><div class="ladder">${ladder}</div></div>
   <div class="panel" style="margin-top:16px">${survivor}</div>
   ${prov}`;
+}
+
+// usage stats (TELEMETRY.md): always say whether it is on and how to change it
+function telemetryLine() {
+  const t = server.info && server.info.telemetry;
+  if (!t) return '<p class="note" id="telemetry-line">Usage stats: off unless you said yes at install. See TELEMETRY.md.</p>';
+  const what = t.enabled ? `on (${escapeXml(t.reason)}): once a week, counts only${t.lastSentWeek ? `, last sent ${escapeXml(t.lastSentWeek)}` : ''}${t.endpointSet ? '' : ', no collector set so nothing is sent'}` : `off (${escapeXml(t.reason)})`;
+  return `<p class="note" id="telemetry-line">Usage stats: ${what}. To change it: <code>${escapeXml(t.change)}</code>${t.enabled ? ' (or set POL_TELEMETRY=off)' : ''}. What is and is never sent: TELEMETRY.md.</p>`;
 }
 
 // ---- section: skills (computed server-side in skills.js; rendered here) ----
@@ -1913,7 +1922,7 @@ async function checkServer(st) {
   server.old = !st || st.api == null || st.api < APP_API || !st.skills || st.rev == null;
   if (!server.old && Date.now() - server.checkedAt > 60000) {
     server.checkedAt = Date.now();
-    try { const r = await fetch('/api/version'); if (r.ok) { server.info = await r.json(); server.stale = !!server.info.stale; if (server.info.api < APP_API) server.old = true; } else server.old = true; } catch {}
+    try { const r = await fetch('/api/version'); if (r.ok) { const had = JSON.stringify(server.info && server.info.telemetry); server.info = await r.json(); if (had !== JSON.stringify(server.info.telemetry) && current === 'proof' && document.getElementById('modal').hidden) renderActive(); server.stale = !!server.info.stale; if (server.info.api < APP_API) server.old = true; } else server.old = true; } catch {}
   }
   showBanner();
 }

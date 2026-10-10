@@ -1,0 +1,11 @@
+install_id,iso_week,received_day,app_version,runs_hatched,active_days,runs_by_species,agent
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,2026-W42,2026-10-12,1.0.0,10,3,"{""cog"":4,""moth"":6}",claude-code
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,2026-W42,2026-10-13,1.0.0,3,1,"{""cog"":3}",claude-code
+cccccccccccccccccccccccccccccccc,2026-W42,2026-10-14,1.0.0,0,0,{},claude-code
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,2026-W43,2026-10-19,1.0.0,5,2,"{""scholar"":5}",claude-code
+cccccccccccccccccccccccccccccccc,2026-W43,2026-10-20,1.0.0,6,2,"{""hydra"":6}",claude-code
+dddddddddddddddddddddddddddddddd,2026-W43,2026-10-21,1.0.0,8,4,"{""cog"":8}",claude-code
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,2026-W44,2026-10-26,1.0.0,2,1,"{""cog"":2}",claude-code
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,2026-W44,2026-10-27,1.0.0,4,2,"{""prism"":4}",claude-code
+dddddddddddddddddddddddddddddddd,2026-W44,2026-10-26,1.0.0,1,1,"{""lumen"":1}",claude-code
+eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee,2026-W44,2026-10-30,1.0.0,2,1,"{""wisp"":2}",claude-code

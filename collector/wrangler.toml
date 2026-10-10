@@ -1,0 +1,14 @@
+name = "pol-telemetry"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+# no request logs: the Worker never logs, and Workers Logs stays off
+[observability]
+enabled = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pol-telemetry"
+# paste the database_id that `npx wrangler d1 create pol-telemetry` prints (DEPLOY.md step 2)
+database_id = "PASTE-DATABASE-ID-HERE"

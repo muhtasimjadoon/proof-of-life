@@ -39,6 +39,7 @@ Everything runs on your machine. Your creatures live in `data/state.json`.
 - **When a run ends,** the hook reads the transcript and sends only counts: tool names, file extensions from a known list, the first word of shell commands from a known list (`npm`, `git`, `ffmpeg`), how many `git commit` and `git push` commands ran, and how many tool calls came back as errors. Anything else is sent as `other`. It never sends file paths, file names, file contents, command arguments, error text or the conversation. When `POL_SERVER` points at another machine, MCP tool names are reduced to a family (`mcp__outreach`, `mcp__browser`), so the host never learns which servers you run.
 - The server listens on `127.0.0.1` only, and on loopback it only answers to a loopback `Host`, so a web page that rebinds its domain to your machine can't read or change anything. Requests that change state must be JSON and must come from the page itself or from a hook: a request from another site is refused. Set `POL_HOST=0.0.0.0` to share it; remote requests then need an operator token to read a collection.
 - The hooks time out in 1.5 seconds and always exit cleanly. They never slow down or break a session, even if the server is off.
+- **Usage stats are off unless you say yes.** The installer asks once (y/N). If you agree, the server (never the hooks) sends one counts-only heartbeat a week: a random install ID, app version, week, runs, active days and runs per type of work. No names, handles, prompts, paths or file contents. Exact schema and how to turn it off: [TELEMETRY.md](TELEMETRY.md).
 
 ## Threat model
 
@@ -81,6 +82,8 @@ curl  http://localhost:4855/api/version                      # the running build
 | `POL_HOST` | listen address (default `127.0.0.1`; `0.0.0.0` to share) |
 | `POL_SERVER`, `POL_TOKEN` | point the hooks at a hosted server instead of localhost |
 | `node server.js --samples` | add sample operators to explore the Board and cross-breeding |
+| `POL_TELEMETRY=off` | never send usage stats, whatever you answered at install ([TELEMETRY.md](TELEMETRY.md)) |
+| `node install.mjs --telemetry=on\|off` | change your usage-stats answer |
 | `node scripts/stats.mjs [state.json]` | share of your creatures by work type since 2026-10-09 (read-only; default `data/state.json`) |
 
 ## How it works

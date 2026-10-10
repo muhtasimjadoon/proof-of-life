@@ -1,0 +1,108 @@
+[
+ {
+  "results": [
+   {
+    "install_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "iso_week": "2026-W42",
+    "received_day": "2026-10-12",
+    "app_version": "1.0.0",
+    "runs_hatched": 10,
+    "active_days": 3,
+    "runs_by_species": "{\"cog\":4,\"moth\":6}",
+    "agent": "claude-code"
+   },
+   {
+    "install_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "iso_week": "2026-W42",
+    "received_day": "2026-10-13",
+    "app_version": "1.0.0",
+    "runs_hatched": 3,
+    "active_days": 1,
+    "runs_by_species": "{\"cog\":3}",
+    "agent": "claude-code"
+   },
+   {
+    "install_id": "cccccccccccccccccccccccccccccccc",
+    "iso_week": "2026-W42",
+    "received_day": "2026-10-14",
+    "app_version": "1.0.0",
+    "runs_hatched": 0,
+    "active_days": 0,
+    "runs_by_species": "{}",
+    "agent": "claude-code"
+   },
+   {
+    "install_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "iso_week": "2026-W43",
+    "received_day": "2026-10-19",
+    "app_version": "1.0.0",
+    "runs_hatched": 5,
+    "active_days": 2,
+    "runs_by_species": "{\"scholar\":5}",
+    "agent": "claude-code"
+   },
+   {
+    "install_id": "cccccccccccccccccccccccccccccccc",
+    "iso_week": "2026-W43",
+    "received_day": "2026-10-20",
+    "app_version": "1.0.0",
+    "runs_hatched": 6,
+    "active_days": 2,
+    "runs_by_species": "{\"hydra\":6}",
+    "agent": "claude-code"
+   },
+   {
+    "install_id": "dddddddddddddddddddddddddddddddd",
+    "iso_week": "2026-W43",
+    "received_day": "2026-10-21",
+    "app_version": "1.0.0",
+    "runs_hatched": 8,
+    "active_days": 4,
+    "runs_by_species": "{\"cog\":8}",
+    "agent": "claude-code"
+   },
+   {
+    "install_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "iso_week": "2026-W44",
+    "received_day": "2026-10-26",
+    "app_version": "1.0.0",
+    "runs_hatched": 2,
+    "active_days": 1,
+    "runs_by_species": "{\"cog\":2}",
+    "agent": "claude-code"
+   },
+   {
+    "install_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "iso_week": "2026-W44",
+    "received_day": "2026-10-27",
+    "app_version": "1.0.0",
+    "runs_hatched": 4,
+    "active_days": 2,
+    "runs_by_species": "{\"prism\":4}",
+    "agent": "claude-code"
+   },
+   {
+    "install_id": "dddddddddddddddddddddddddddddddd",
+    "iso_week": "2026-W44",
+    "received_day": "2026-10-26",
+    "app_version": "1.0.0",
+    "runs_hatched": 1,
+    "active_days": 1,
+    "runs_by_species": "{\"lumen\":1}",
+    "agent": "claude-code"
+   },
+   {
+    "install_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "iso_week": "2026-W44",
+    "received_day": "2026-10-30",
+    "app_version": "1.0.0",
+    "runs_hatched": 2,
+    "active_days": 1,
+    "runs_by_species": "{\"wisp\":2}",
+    "agent": "claude-code"
+   }
+  ],
+  "success": true,
+  "meta": {}
+ }
+]
