@@ -1,0 +1,5 @@
+# LF everywhere: a CRLF shebang in cli.mjs breaks `npx proof-of-life` on macOS and Linux
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.webp binary
