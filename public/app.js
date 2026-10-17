@@ -1337,14 +1337,101 @@ function goalPanel(en) {
     <div class="note">${g.auto ? (med === g.target ? `Set from your median day: ${runsN(med)}` : (med ? `Your median day is ${runsN(med)}, so the auto goal sits at its ${med < g.target ? 'minimum' : 'maximum'} of ${runsN(g.target)}` : `No past days to take a median from yet, so the auto goal starts at its minimum of ${runsN(g.target)}`)) : `Today: ${runsN(en.today.runs)} · ${fmtN(en.today.minutes)} machine-min`}</div>
     <select id="goalsel" class="sel" aria-label="daily goal">${custom}${GOALS.map(opt).join('')}</select></div></div>`;
 }
+// ---- activity over time: week strip, month calendar, year heatmap ----
+let actView = (() => { try { return localStorage.getItem('pol_actv') || 'week'; } catch { return 'week'; } })();
+let actOff = 0; // how many months (month view) or years (year view) back from now
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const dayNum = (d) => d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+let dayMemo = { key: '', map: new Map(), first: null };
+// runs and agent time per local day, from real runs only (bred hybrids are not runs,
+// sessions left open add no time)
+function dayStats() {
+  const cs = latest.creatures, key = cs.length + '|' + (cs[0] ? cs[0].id : '');
+  if (dayMemo.key === key) return dayMemo;
+  const map = new Map(); let first = null;
+  for (const c of cs) {
+    if (c.bredBy) continue;
+    const d = new Date(c.bornAt), k = dayNum(d), e = map.get(k) || { runs: 0, ms: 0 };
+    e.runs++; if (!isOpenRun(c)) e.ms += agentMs(c); map.set(k, e);
+    if (!first || c.bornAt < first) first = c.bornAt;
+  }
+  dayMemo = { key, map, first };
+  return dayMemo;
+}
+function goalMet(e, g) { return !!e && !!g && (g.type === 'runs' ? e.runs >= g.target : e.ms / 60000 >= g.target); }
+const heatLvl = (runs, max) => (runs ? Math.max(1, Math.ceil((4 * runs) / Math.max(1, max))) : 0);
+function periodTotals(days, g) {
+  let runs = 0, ms = 0, active = 0, met = 0, best = null;
+  for (const [k, e] of days) { if (!e) continue; runs += e.runs; ms += e.ms; active++; if (goalMet(e, g)) met++; if (!best || e.runs > best.e.runs) best = { k, e }; }
+  return { runs, ms, active, met, best };
+}
+function totalsLine(t, span, g) {
+  const cell = (v, l) => `<div><b class="num">${v}</b><span>${l}</span></div>`;
+  return `<div class="act-tot">${cell(fmtN(t.runs), t.runs === 1 ? 'run' : 'runs')}${cell(fmtN(Math.round(t.ms / 360000) / 10) + ' h', 'agent time')}${cell(`${t.active}<small>/${span}</small>`, 'days active')}${g ? cell(t.met, 'goal days') : ''}</div>`;
+}
+const dayTitle = (d, e, g) => `${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} · ${e ? `${plural(e.runs, 'run')} · ${fmtN(Math.round(e.ms / 60000))} machine-min${goalMet(e, g) ? ' · goal met' : ''}` : 'no runs'}`;
+function monthView(g) {
+  const { map, first } = dayStats(), now = new Date();
+  const m0 = new Date(now.getFullYear(), now.getMonth() - actOff, 1), dim = new Date(m0.getFullYear(), m0.getMonth() + 1, 0).getDate();
+  const todayN = dayNum(now), lead = (m0.getDay() + 6) % 7; // Monday first
+  const days = []; let max = 0;
+  for (let i = 1; i <= dim; i++) { const d = new Date(m0.getFullYear(), m0.getMonth(), i), e = map.get(dayNum(d)); days.push([d, e]); if (e && e.runs > max) max = e.runs; }
+  const cells = '<i class="mc-pad"></i>'.repeat(lead) + days.map(([d, e]) => {
+    const n = dayNum(d), fut = n > todayN;
+    return `<i class="mc l${heatLvl(e ? e.runs : 0, max)}${goalMet(e, g) ? ' met' : ''}${n === todayN ? ' today' : ''}${fut ? ' fut' : ''}" title="${escapeXml(dayTitle(d, e, g))}">${d.getDate()}</i>`;
+  }).join('');
+  const span = spanDays(m0, new Date(m0.getFullYear(), m0.getMonth(), dim), first);
+  const canBack = first && m0.getTime() > new Date(new Date(first).getFullYear(), new Date(first).getMonth(), 1).getTime();
+  return { nav: `${MONTH_NAMES[m0.getMonth()]} ${m0.getFullYear()}`, canBack,
+    body: `<div class="mcal"><div class="mc-head">${['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((x) => `<b>${x}</b>`).join('')}</div><div class="mc-grid">${cells}</div></div>${totalsLine(periodTotals(days.map(([d, e]) => [dayNum(d), e]), g), span, g)}` };
+}
+function yearView(g) {
+  const { map, first } = dayStats(), now = new Date(), yr = now.getFullYear() - actOff, todayN = dayNum(now);
+  const inYear = []; let max = 0;
+  for (let d = new Date(yr, 0, 1); d.getFullYear() === yr; d.setDate(d.getDate() + 1)) { const e = map.get(dayNum(d)); inYear.push([dayNum(d), e]); if (e && e.runs > max) max = e.runs; }
+  // twelve small calendars, Monday first; a month you can open jumps to the month view
+  const months = MONTH_NAMES.map((name, m) => {
+    const m0 = new Date(yr, m, 1), dim = new Date(yr, m + 1, 0).getDate(), lead = (m0.getDay() + 6) % 7;
+    const back = (now.getFullYear() - yr) * 12 + now.getMonth() - m, open = back >= 0;
+    let runs = 0, cells = '<i class="ymc pad"></i>'.repeat(lead);
+    for (let i = 1; i <= dim; i++) {
+      const d = new Date(yr, m, i), n = dayNum(d), e = map.get(n); if (e) runs += e.runs;
+      cells += `<i class="ymc l${heatLvl(e ? e.runs : 0, max)}${goalMet(e, g) ? ' met' : ''}${n === todayN ? ' today' : ''}${n > todayN ? ' fut' : ''}" title="${escapeXml(dayTitle(d, e, g))}"></i>`;
+    }
+    return `<button type="button" class="ym${open ? '' : ' fut'}" ${open ? `data-actmonth="${back}"` : 'disabled'} title="${name} ${yr}: ${plural(runs, 'run')}"><span class="ym-h"><b>${name.slice(0, 3)}</b>${runs ? `<em>${fmtN(runs)}</em>` : ''}</span><span class="ym-g">${cells}</span></button>`;
+  }).join('');
+  const t = periodTotals(inYear, g), span = spanDays(new Date(yr, 0, 1), new Date(yr, 11, 31), first);
+  const byMonth = Array(12).fill(0); for (const [k, e] of inYear) if (e) byMonth[Math.floor(k / 100) % 100 - 1] += e.runs;
+  const bm = byMonth.indexOf(Math.max(...byMonth));
+  const canBack = first && yr > new Date(first).getFullYear();
+  return { nav: String(yr), canBack,
+    body: `<div class="yheat">${months}</div>
+      <div class="yh-legend"><span>Less</span>${[0, 1, 2, 3, 4].map((l) => `<i class="yl l${l}"></i>`).join('')}<span>More</span><i class="yl met-k"></i><span>goal met</span></div>
+      ${totalsLine(t, span, g)}${t.runs ? `<div class="note">Busiest month: ${MONTH_NAMES[bm]} (${plural(byMonth[bm], 'run')}) · tap a month to open it</div>` : ''}` };
+}
+// days in [from, to] that count: not before your first run, not after today
+function spanDays(from, to, first) {
+  const day = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const a = Math.max(day(from), first ? day(first) : day(from)), b = Math.min(day(to), day(Date.now()));
+  return b < a ? 0 : Math.round((b - a) / 86400000) + 1;
+}
 function streakPanel(en) {
   const days = []; // last 7 local days, oldest first, from the real week series
   const wk = (latest.skills && latest.skills.list.reduce((acc, s) => { (s.week || []).forEach((v, i) => (acc[i] = (acc[i] || 0) + v)); return acc; }, [])) || [];
   for (let i = 0; i < 7; i++) days.push(wk[i] > 0);
   const dn = ['S', 'M', 'T', 'W', 'T', 'F', 'S'], today = new Date().getDay();
   const toMythic = (rules().mythic || RULES_FALLBACK.mythic).streak - en.streak;
-  return `<div class="streak ${en.streak ? 'on' : ''}"><div class="streak-top">${FLAME}<b class="num">${en.streak}</b><span>day streak</span></div>
-    <div class="week-dots">${days.map((on, i) => `<div class="wd ${on ? 'on' : ''}"><i></i><span>${dn[(today - 6 + i + 14) % 7]}</span></div>`).join('')}</div>
+  const g = en.goal; // today's goal, applied to past days
+  const seg = `<div class="seg act-seg" role="tablist">${['week', 'month', 'year'].map((v) => `<button type="button" data-actv="${v}" class="seg-b ${actView === v ? 'on' : ''}" role="tab" aria-selected="${actView === v}">${v[0].toUpperCase() + v.slice(1)}</button>`).join('')}</div>`;
+  let body;
+  if (actView === 'week') {
+    body = `<div class="week-dots">${days.map((on, i) => `<div class="wd ${on ? 'on' : ''}"><i></i><span>${dn[(today - 6 + i + 14) % 7]}</span></div>`).join('')}</div>`;
+  } else {
+    const v = actView === 'month' ? monthView(g) : yearView(g);
+    body = `<div class="act-nav"><button data-actnav="-1" ${v.canBack ? '' : 'disabled'} aria-label="previous">‹</button><b>${v.nav}</b><button data-actnav="1" ${actOff > 0 ? '' : 'disabled'} aria-label="next">›</button></div>${v.body}`;
+  }
+  return `<div class="streak ${en.streak ? 'on' : ''}"><div class="streak-top">${FLAME}<b class="num">${en.streak}</b><span>day streak</span>${seg}</div>
+    ${body}
     <div class="note">Best ${plural(en.bestStreak, 'day')} · ${toMythic > 0 && en.streak ? `${plural(toMythic, 'more day')} in a row hatches a Devoted Mythic` : plural(en.activeDays, 'active day') + ' on record'}</div></div>`;
 }
 function welcomeState() { try { return { n: Number(localStorage.getItem('pol_visits') || 0), off: localStorage.getItem('pol_welcomed') === '1' }; } catch { return { n: 1, off: false }; } }
@@ -1990,6 +2077,9 @@ function renderActive() {
   const on = stage.querySelector('#opennew'); if (on) on.onclick = () => openModal(latest.creatures[0]);
   const sv = stage.querySelector('#savenew'); if (sv) sv.onclick = () => downloadCard(latest.creatures[0], 'portrait');
   const swk = stage.querySelector('#saveweek'); if (swk) swk.onclick = downloadWeekCard;
+  stage.querySelectorAll('[data-actv]').forEach((b) => { b.onclick = () => { actView = b.dataset.actv; actOff = 0; try { localStorage.setItem('pol_actv', actView); } catch {} renderActive(); }; });
+  stage.querySelectorAll('[data-actmonth]').forEach((b) => { b.onclick = () => { actView = 'month'; actOff = Number(b.dataset.actmonth) || 0; try { localStorage.setItem('pol_actv', 'month'); } catch {} renderActive(); }; });
+  stage.querySelectorAll('[data-actnav]').forEach((b) => { b.onclick = () => { actOff = Math.max(0, actOff - Number(b.dataset.actnav)); renderActive(); }; });
   stage.querySelectorAll('[data-tel]').forEach((b) => { b.onclick = () => setTelemetry(b.dataset.tel === 'on'); });
   const gs = stage.querySelector('#goalsel'); if (gs) gs.onchange = async () => { const [type, target] = gs.value.split(':'); try { await fetch('/api/me', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ goal: { type, target: Number(target) } }) }); } catch {} poll(true); };
   const skc = stage.querySelector('#skcard'); if (skc) skc.onclick = () => downloadSkillCard(latest.skills.list.find((s) => s.key === skc.dataset.skill));
