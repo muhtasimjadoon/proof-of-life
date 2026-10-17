@@ -1384,7 +1384,7 @@ function sec_home() {
   const rw = en && en.rarestWeek ? findCreature(en.rarestWeek.creatureId) : null;
   const wg = en && en.weekGains && en.weekGains.length ? en.weekGains : null, wmax = wg ? Math.max(...wg.map((g) => g.xp)) : 1;
   const week = `<div class="panel weekp"><div class="p-head"><h2>This week</h2><span class="note link" data-go="skills">all skills →</span></div>
-    ${rw ? `<div class="rw link-c" data-id="${escapeXml(rw.id)}" style="--tier:${rw.rarity.chip}">${creatureSVG(rw, 84, { live: true })}<div><span class="eyebrow">Rarest this week</span><b>${escapeXml(shortName(rw))} <em class="rw-sp">${escapeXml(rw.speciesName)}</em></b><span><span style="color:${rw.rarity.chip}">${rw.rarity.tier}</span> · ${escapeXml(en.rarestWeek.durationLabel)} run · ${shortDate(rw.bornAt)}</span></div></div>` : ''}
+    ${rw ? `<div class="rw link-c" data-id="${escapeXml(rw.id)}" style="--tier:${rw.rarity.chip}">${creatureSVG(rw, 84)}<div><span class="eyebrow">Rarest this week</span><b>${escapeXml(shortName(rw))} <em class="rw-sp">${escapeXml(rw.speciesName)}</em></b><span><span style="color:${rw.rarity.chip}">${rw.rarity.tier}</span> · ${escapeXml(en.rarestWeek.durationLabel)} run · ${shortDate(rw.bornAt)}</span></div></div>` : ''}
     ${weekShareHTML()}${telemetryAsk()}
     ${wg ? wg.map((g) => { const s = latest.skills.list.find((x) => x.key === g.key); return `<div class="wk-row"><span>${escapeXml(g.name)}</span><b>+${fmtN(g.xp)} xp</b><div class="wk-bar"><i style="width:${Math.round((g.xp / wmax) * 100)}%;background:${s ? s.band.color : 'var(--green)'}"></i></div></div>`; }).join('') : '<p class="note">No skill gains in the last 7 days.</p>'}</div>`;
   const os = latest.stats.openSessions;

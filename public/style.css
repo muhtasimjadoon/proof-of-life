@@ -1050,3 +1050,15 @@ button.ghost.small { width: auto; padding: 8px 14px; }
 .pill.wait .live { background: var(--amber); box-shadow: 0 0 10px var(--amber); animation: blink 1s infinite; }
 .pill.done .live { background: var(--muted); box-shadow: none; animation: none; }
 .wk-share { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+
+/* ---- motion only on hover ----
+   Creature art and shiny borders stay still on cards and move only while that
+   card is hovered. The later `animation` shorthands above reset play-state to
+   running, so these rules come last and use !important. Single focal pieces
+   marked .live (home hero, open creature, hatch reveal) keep moving. */
+.art [class^="pl-"], .art [class*=" pl-"] { animation-play-state: paused !important; }
+.art.live [class^="pl-"], .art.live [class*=" pl-"],
+:is(.tile, .mcard, .dg-c, .rec, .skill-card, .egg, .guest, .link-c, .rung, .vr, .contrib, .gr-pair, .pod-art):hover .art :is([class^="pl-"], [class*=" pl-"]),
+*:hover > .art :is([class^="pl-"], [class*=" pl-"]) { animation-play-state: running !important; }
+.tile.shiny, .tile .shinychip { animation-play-state: paused; }
+.tile.shiny:hover, .tile:hover .shinychip { animation-play-state: running; }
