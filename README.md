@@ -1,6 +1,6 @@
 # Proof of Life
 
-**A weekly report of what your Claude Code agents did, by type of work. Every run also hatches a creature, which is what keeps you looking.**
+**A CV of your AI work, built from real Claude Code runs.** Everyone says they've worked with AI for years; this is how you show it. Every run is recorded by type of work, signed, and turned into skill levels, and every run hatches a creature, which is what keeps you looking.
 
 ![934 creatures, each hatched from a real Claude Code run](docs/collection.png)
 
