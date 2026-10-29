@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Proof of Life · @muhtasimjadoon</title>
+  <meta name="description" content="1926 signed records of real Claude Code runs by @muhtasimjadoon. A CV of AI work." />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <div class="mark" id="mark" title="Proof of Life"></div>
+      <nav class="rail-nav" id="rail"></nav>
+      <button class="rbtn sound" id="sound" type="button" aria-pressed="false" title="Sound off"></button>
+      <div class="rail-me" id="railme" title="You"></div>
+    </aside>
+
+    <main class="main">
+      <div class="srv-banner pub-banner" role="status">Public copy of <b>@muhtasimjadoon</b>'s record · 1926 runs · updated Oct 30, 2026 · every signature checks in your browser · <a href="https://github.com/muhtasimjadoon/proof-of-life">Get your own</a></div>
+      <div id="banner" class="srv-banner" role="status" hidden></div>
+      <header class="topbar">
+        <div class="tb-title"><span class="eyebrow" id="tb-eyebrow"></span><h1 id="tb-title"></h1></div>
+        <div class="tb-right" id="tb-right"></div>
+      </header>
+      <section class="stage" id="stage"></section>
+    </main>
+  </div>
+
+  <div id="modal" class="modal" hidden><div class="modal-card" id="modal-card"></div></div>
+  <div id="reveal" class="reveal" hidden role="dialog" aria-modal="true" aria-label="A creature hatched"></div>
+  <div id="toasts" class="toast-stack" aria-live="polite"></div>
+  <script src="static.js"></script>
+  <script src="variants.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
