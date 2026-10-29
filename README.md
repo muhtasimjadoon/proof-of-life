@@ -2,7 +2,9 @@
 
 **A CV of your AI work, built from real Claude Code runs.** Everyone says they've worked with AI for years; this is how you show it. Every run is recorded by type of work, signed, and turned into skill levels, and every run hatches a creature, which is what keeps you looking.
 
-![934 creatures, each hatched from a real Claude Code run](docs/collection.png)
+**See a live one:** [muhtasimjadoon.github.io/proof-of-life](https://muhtasimjadoon.github.io/proof-of-life/), my own record (1,900+ real runs since Aug 14, 2026). Every signature checks in your browser. Publish yours the same way with `scripts/publish-public-site.sh`.
+
+![Each creature hatched from a real Claude Code run](docs/collection.png)
 
 Each creature is a signed, tamper-evident record of one run: nobody can change a record later without it showing. It is your own record, not an audit.
 
