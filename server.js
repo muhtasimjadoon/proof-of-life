@@ -12,7 +12,7 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const {
   computeCreature, detectDomain, SPECIES, RARITY, operatorScore, weekScore, levelFor, xpGain, hashString, mulberry32, breedCreature,
-  durationLabel, isOpenSession, HERD_WINDOW, Skills, MYTHIC_RUN_MS, MYTHIC_SUBAGENTS, MYTHIC_STREAK, MARATHON_MS,
+  durationLabel, isOpenSession, HERD_WINDOW, Skills, MYTHIC_RUN_MS, MYTHIC_SUBAGENTS, MYTHIC_STREAK, MARATHON_MS, uniqueName,
 } = require('./engine');
 const Variants = require('./public/variants.js');
 const Telemetry = require('./telemetry.js');
@@ -475,6 +475,23 @@ function replayHerd(op) {
     sibs.push(c);
   }
 }
+// every creature on a shelf has its own name: a taken name is swapped for a fresh
+// one from the creature's seed (engine.uniqueName). Names are not signed.
+function nameApart(c, taken) {
+  if (!taken.has(c.name)) { taken.add(c.name); return false; }
+  const old = c.name, n = uniqueName(c.seed, taken);
+  c.name = n;
+  c.fullName = String(c.fullName || '').startsWith(old) ? n + c.fullName.slice(old.length) : n;
+  taken.add(n);
+  return true;
+}
+// oldest first, so the first creature to carry a name keeps it
+function uniqueNames(op) {
+  const taken = new Set();
+  let n = 0;
+  for (const c of op.creatures.slice().sort((a, b) => a.bornAt - b.bornAt)) if (nameApart(c, taken)) n++;
+  return n;
+}
 // derived, unsigned caches: refresh when the formulas change
 function refreshDerived() {
   let n = 0;
@@ -547,6 +564,7 @@ function hatch(op, { id, error, subagents, activity, gaps, tzOffset }, at) {
     allowMythic: true, ...streakInfo(op, now, tz),
   };
   const creature = computeCreature(run);
+  nameApart(creature, new Set(op.creatures.map((c) => c.name)));
   attest(creature, op.handle);
   // unsigned and outside the signed message: time this run waited on you (only when it did)
   const waitMs = waitedMs(egg, cleanGaps(gaps), startedAt, now);
@@ -926,6 +944,7 @@ for (const op of Object.values(state.operators)) {
   for (const e of Object.values(op.eggs)) { delete e.prompt; if (!e.lastSeen) e.lastSeen = e.startedAt; } // older versions kept prompts
 }
 refreshDerived();
+for (const op of Object.values(state.operators)) { const n = uniqueNames(op); if (n) console.log(`[pol] @${op.handle}: gave ${n} creatures with a repeated name a name of their own`); }
 pruneStaleEggs(); // clear any orphaned eggs left by sessions that never sent a Stop
 setInterval(pruneStaleEggs, 10 * 60 * 1000).unref();
 computeBreeds();

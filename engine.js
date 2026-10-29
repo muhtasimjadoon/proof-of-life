@@ -413,7 +413,25 @@ function breedCreature(a, b, handleA, handleB, domain) {
   };
 }
 
+// A name nobody on the shelf has yet, for a creature whose name is taken. The
+// same seed always walks the same sequence, so a rename is reproducible; past
+// the first tries every candidate gets a middle syllable (about 27,000 more
+// names). Names are not part of the signed message, so this never touches a
+// signature.
+function uniqueName(seed, taken) {
+  for (let k = 1; k <= 400; k++) {
+    const rng = mulberry32((seed ^ Math.imul(k, 0x9e3779b1)) >>> 0);
+    const n = pick(NAME_HEAD, rng) + (k > 8 || rng() < 0.5 ? pick(NAME_MID, rng) : '') + pick(NAME_TAIL, rng);
+    if (!taken.has(n)) return n;
+  }
+  const base = pick(NAME_HEAD, mulberry32(seed)) + pick(NAME_TAIL, mulberry32(seed + 1));
+  let i = 2;
+  while (taken.has(`${base} ${i}`)) i++;
+  return `${base} ${i}`;
+}
+
 module.exports = {
+  uniqueName,
   // skills (see skills.js; the browser loads the same file as /skills.js)
   Skills,
   xpFor: Skills.xpFor,

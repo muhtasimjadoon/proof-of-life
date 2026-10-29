@@ -15,3 +15,6 @@ data/.welcomed
 data/*.bak
 data/backups/
 data/state.json.*
+
+# public site build output (made by scripts/build-public-site.mjs)
+proof-of-life-site/
