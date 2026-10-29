@@ -8,7 +8,7 @@
 //   node install.mjs --uninstall  remove only the Proof of Life hooks
 //   node install.mjs --telemetry=on|off   set the usage-stats choice (no question)
 //   (to change only the usage-stats answer later, without touching hooks:
-//    node cli.mjs telemetry on|off, or npx proof-of-life telemetry on|off)
+//    node cli.mjs telemetry on|off, or npx github:muhtasimjadoon/proof-of-life telemetry on|off)
 //
 // Usage stats (TELEMETRY.md) are off by default. Run in a terminal, it asks
 // once (y/N); run without one (CI, scripts) it never asks and stays off.

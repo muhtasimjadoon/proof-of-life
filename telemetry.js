@@ -5,7 +5,7 @@
 //   data/telemetry.json  { enabled, installId, decidedAt, via, lastSentWeek, lastSentAt }
 //   written by the installer (asks once in a terminal), by the yes/no on the page
 //   (POST /api/telemetry, this machine only), or by the hooks-free command
-//   `npx proof-of-life telemetry on|off` (`node cli.mjs telemetry on|off` in a clone)
+//   `npx github:muhtasimjadoon/proof-of-life telemetry on|off` (`node cli.mjs telemetry on|off` in a clone)
 //   POL_TELEMETRY=off        always off, whatever the file says
 //   POL_TELEMETRY_URL=<url>  where to send (else TELEMETRY_URL below; empty = never send)
 
@@ -75,7 +75,7 @@ function installKind(root = __dirname) {
 }
 // the command that changes the answer and leaves the hooks alone
 function changeCommand(on, kind = installKind()) {
-  return (kind === 'clone' ? 'node cli.mjs telemetry ' : 'npx proof-of-life telemetry ') + (on ? 'on' : 'off');
+  return (kind === 'clone' ? 'node cli.mjs telemetry ' : 'npx github:muhtasimjadoon/proof-of-life telemetry ') + (on ? 'on' : 'off');
 }
 
 // what the page shows: on/off, why, and how to change it

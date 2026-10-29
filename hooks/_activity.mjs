@@ -74,7 +74,7 @@ export function gitOps(command) {
   return out;
 }
 
-function isPromptEntry(e) {
+export function isPromptEntry(e) {
   if (e.type !== 'user' || e.isMeta || !e.message) return false;
   const c = e.message.content;
   if (typeof c === 'string') return true;
@@ -119,6 +119,17 @@ export function readActivity(transcriptPath, whole, withGaps) {
     let i = entries.length - 1;
     if (whole) i = -1;
     else while (i >= 0 && !isPromptEntry(entries[i])) i--;
+    return activityFromEntries(entries, i, withGaps, remote);
+  } catch {
+    return null;
+  }
+}
+
+// the counts for entries after index i (the prompt that opened the turn, or -1
+// for the whole list). readActivity uses it at Stop time; the transcript
+// recovery script (scripts/recover-from-transcripts.mjs) uses it per past turn
+export function activityFromEntries(entries, i, withGaps, remote) {
+  {
     const tools = {}, exts = {}, cmds = {};
     const git = { commit: 0, push: 0 };
     let toolCalls = 0, toolErrors = 0;
@@ -148,7 +159,5 @@ export function readActivity(transcriptPath, whole, withGaps) {
     if (git.commit || git.push) out.git = git; // counts only, and only when there were any
     if (withGaps) out.gaps = quietGaps(entries, Math.max(0, i));
     return out;
-  } catch {
-    return null;
   }
 }

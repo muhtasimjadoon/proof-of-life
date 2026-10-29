@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // Proof of Life: one command to install, start and open it.
 //
-//   npx proof-of-life              install the hooks, start the server, open the page
-//   npx proof-of-life uninstall    remove the hooks and stop the server it started
-//   npx proof-of-life start|stop   start or stop the server only
-//   npx proof-of-life telemetry on|off|status   usage stats answer only (hooks untouched)
+//   npx github:muhtasimjadoon/proof-of-life              install the hooks, start the server, open the page
+//   npx github:muhtasimjadoon/proof-of-life uninstall    remove the hooks and stop the server it started
+//   npx github:muhtasimjadoon/proof-of-life start|stop   start or stop the server only
+//   npx github:muhtasimjadoon/proof-of-life telemetry on|off|status   usage stats answer only (hooks untouched)
 //   node cli.mjs ...               the same from a git clone
 //
 // Flags: --no-open (never open a browser), --no-start (hooks only),
@@ -156,7 +156,7 @@ async function main() {
     const dataDir = Paths.dataDir(HERE);
     const want = (argv.filter((a) => !a.startsWith('-'))[1] || 'status').toLowerCase();
     if (want === 'on' || want === 'off') Telemetry.setChoice(dataDir, want === 'on', 'command');
-    else if (want !== 'status') { console.error('Usage: npx proof-of-life telemetry on|off|status'); return 2; }
+    else if (want !== 'status') { console.error('Usage: npx github:muhtasimjadoon/proof-of-life telemetry on|off|status'); return 2; }
     const t = Telemetry.status(dataDir);
     console.log(`Usage stats: ${t.enabled ? 'on' : 'off'} (${t.reason}). Stored in ${path.join(dataDir, 'telemetry.json')}`);
     console.log(`Change it: ${t.change}. What is and is never sent: TELEMETRY.md`);
@@ -182,7 +182,7 @@ async function main() {
     else if (r === 'not-ours') console.log(`A server is still running on port ${PORT}; it was not started by this tool.`);
     return ok ? 0 : 1;
   }
-  if (cmd !== 'install') { console.error(`Unknown command: ${cmd}. Try: npx proof-of-life help`); return 2; }
+  if (cmd !== 'install') { console.error(`Unknown command: ${cmd}. Try: npx github:muhtasimjadoon/proof-of-life help`); return 2; }
 
   const root = stableRoot();
   if (!runInstaller(root, [])) return 1;
@@ -192,7 +192,7 @@ async function main() {
   console.log(`\nProof of Life is ${r === 'running' ? 'already running' : r} at ${URL_}`);
   console.log(`Data: ${Paths.dataDir(root)}`);
   console.log('Use Claude Code as usual. Every run longer than 10 seconds hatches a creature.');
-  console.log(`After a reboot, start it again with: ${Paths.isManaged(root) ? 'npx proof-of-life start' : 'node cli.mjs start'}`);
+  console.log(`After a reboot, start it again with: ${Paths.isManaged(root) ? 'npx github:muhtasimjadoon/proof-of-life start' : 'node cli.mjs start'}`);
   openBrowser(URL_);
   return 0;
 }

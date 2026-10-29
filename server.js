@@ -52,12 +52,15 @@ const SHOW_SAMPLES = process.argv.includes('--samples') || process.env.POL_SAMPL
 const HERD_VERSION = 3; // per-domain raising on the 60-level curve, see raiseHerd
 
 // ---- safe file io --------------------------------------------------------
-// write to a temp file then rename, so a crash mid-write can never leave a
-// half-written state.json behind
+// write to a temp file, flush it to disk, then rename, so a crash or power cut
+// mid-write can never leave a half-written (or all-zero) state.json behind.
+// Without the fsync, Windows can keep the rename but lose the data after a
+// power cut (seen 2026-10-27: a 3.8 MB state.json of nothing but zero bytes)
 function writeAtomic(file, data) {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, data);
+  const fd = fs.openSync(tmp, 'w');
+  try { fs.writeSync(fd, data); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   for (let i = 0; ; i++) {
     try { fs.renameSync(tmp, file); return; }
     catch (e) {
@@ -67,6 +70,28 @@ function writeAtomic(file, data) {
     }
   }
 }
+// rolling backups of state.json: at start and every hour, the last BACKUP_KEEP
+// copies in <data>/backups, and the same in a second folder when POL_BACKUP_DIR
+// or "backupDir" in config.json names one (put it on another drive). Each copy is
+// flushed to disk like state.json itself.
+const BACKUP_KEEP = 48;
+function backupState() {
+  if (!state || !state.operators || !Object.values(state.operators).some((o) => o.creatures && o.creatures.length)) return;
+  const data = JSON.stringify(state);
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 13); // 20261029T0712
+  const dirs = [path.join(DATA_DIR, 'backups'), process.env.POL_BACKUP_DIR || config.backupDir].filter(Boolean);
+  for (const dir of dirs) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, `state-${stamp}.json`);
+      const fd = fs.openSync(file + '.tmp', 'w');
+      try { fs.writeSync(fd, data); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      fs.renameSync(file + '.tmp', file);
+      const old = fs.readdirSync(dir).filter((f) => /^state-\d{8}T\d{4}\.json$/.test(f)).sort();
+      for (const f of old.slice(0, Math.max(0, old.length - BACKUP_KEEP))) fs.unlinkSync(path.join(dir, f));
+    } catch (e) { console.error(`[pol] backup to ${dir} failed:`, e.message); }
+  }
+}
 // a file that exists but cannot be read is never silently replaced: keep a copy
 // and stop, so a human can look at it
 function refuseCorrupt(file, err) {
@@ -74,6 +99,7 @@ function refuseCorrupt(file, err) {
   try { fs.copyFileSync(file, copy); } catch {}
   console.error(`[pol] ${path.basename(file)} exists but could not be read (${err.message}).`);
   console.error(`[pol] Nothing was overwritten. A copy was saved to ${copy}. Fix or restore the file, then start again.`);
+  if (fs.existsSync(file + '.bak')) console.error(`[pol] The last copy that loaded cleanly is ${file}.bak (copy it over ${path.basename(file)} to restore).`);
   process.exit(1);
 }
 
@@ -252,6 +278,9 @@ function loadState() {
     op.eggs = raw.eggs || {};
   } else refuseCorrupt(STATE_FILE, new Error('no operators in file'));
   state.operators = state.operators || {};
+  // keep the last copy that loaded cleanly, so a bad disk event costs at most
+  // the runs since this start, not the whole history
+  try { fs.copyFileSync(STATE_FILE, STATE_FILE + '.bak'); } catch (e) { console.error('[pol] could not keep state.json.bak:', e.message); }
 }
 
 let saveTimer = null;
@@ -310,8 +339,9 @@ function findEgg(op, id) {
 }
 const DOMAIN_KEYS = SPECIES.map((sp) => sp.key);
 function cleanTz(v) { const n = Number(v); return v != null && v !== '' && isFinite(n) && Math.abs(n) <= 840 ? Math.round(n) : null; }
-function layEgg(op, { id, prompt, domain, tzOffset }) {
-  const now = Date.now();
+// at: the clock, Date.now() for live hooks; a past time only from --recover
+function layEgg(op, { id, prompt, domain, tzOffset }, at) {
+  const now = at || Date.now();
   const eggId = cleanRunId(id) || 'egg-' + now;
   // a new prompt in the same session replaces an egg whose Stop never came
   // (an interrupted turn), so its clock starts now
@@ -402,12 +432,12 @@ function mergeCounts(a, b) {
   if (a.git || b.git) out.git = m(a.git, b.git);
   return out;
 }
-function tickSubagent(op, { id, activity }) {
+function tickSubagent(op, { id, activity }, at) {
   const rid = cleanRunId(id);
   const egg = findEgg(op, rid);
   if (!egg) return null;
   egg.subagents = (egg.subagents || 0) + 1;
-  egg.lastSeen = Date.now();
+  egg.lastSeen = at || Date.now();
   closeWait(egg, egg.lastSeen);
   delete egg.waiting; delete egg.waitingAt; // work moved on, so the wait is over
   // subagents' own tool calls live in their own transcripts; count them too
@@ -499,10 +529,10 @@ function streakInfo(op, now, tz) {
   for (let d = today - 1; days.has(d); d--) n++;
   return { streakDays: n, firstOfDay: !days.has(today) };
 }
-function hatch(op, { id, error, subagents, activity, gaps, tzOffset }) {
+function hatch(op, { id, error, subagents, activity, gaps, tzOffset }, at) {
   const rid = cleanRunId(id);
   const egg = findEgg(op, rid);
-  const now = Date.now();
+  const now = at || Date.now();
   if (!egg) return { skipped: true, reason: 'no open egg for this run' };
   const startedAt = egg.startedAt;
   if (now - startedAt < MIN_HATCH_MS) { delete op.eggs[egg.id]; markDone(op, { id: egg.id, domainKey: egg.domainKey, creatureId: null, skipped: true }); saveState(); return { skipped: true, reason: 'too quick to hatch' }; }
@@ -900,6 +930,36 @@ pruneStaleEggs(); // clear any orphaned eggs left by sessions that never sent a 
 setInterval(pruneStaleEggs, 10 * 60 * 1000).unref();
 computeBreeds();
 saveState();
+// rebuild runs lost with state.json from the Claude Code transcripts:
+// node server.js --recover runs.json (made by scripts/recover-from-transcripts.mjs),
+// with the live server stopped. Each run goes through the same layEgg, tickSubagent
+// and hatch a live hook would, at the run's own times, oldest first. A run already
+// on the shelf (same session, hatched within 15 s) is left alone, so it is safe to
+// run twice. Rebuilt creatures carry recovered: 'transcript' (unsigned).
+const RECOVER_AT = process.argv.indexOf('--recover');
+if (RECOVER_AT > 0) {
+  const runs = JSON.parse(fs.readFileSync(process.argv[RECOVER_AT + 1], 'utf8')).sort((a, b) => a.end - b.end);
+  const op = ensureOp(config.handle, config.displayName);
+  const tally = { runs: runs.length, hatched: 0, already: 0, skipped: 0 };
+  const before = op.creatures.slice(); // only creatures from before this recovery count as "already there"
+  for (const r of runs) {
+    const id = cleanRunId(r.id);
+    if (before.some((c) => String(c.id).startsWith(id + ':') && Math.abs(c.bornAt - r.end) < 15000)) { tally.already++; continue; }
+    layEgg(op, { id, domain: r.domain, tzOffset: r.tzOffset }, r.start);
+    for (const s of r.subagents || []) tickSubagent(op, { id, activity: s.activity }, s.end);
+    const c = hatch(op, { id, activity: r.activity, gaps: r.gaps, tzOffset: r.tzOffset }, r.end);
+    if (c && !c.skipped) { c.recovered = 'transcript'; tally.hatched++; } else tally.skipped++;
+  }
+  // levels depend on the order runs happened in, and live hatches since the loss
+  // were raised without the missing runs: recompute every level from history
+  replayHerd(op);
+  computeBreeds();
+  flushState();
+  console.log('[pol] recover:', JSON.stringify(tally), '· creatures now', op.creatures.length);
+  process.exit(0);
+}
+backupState();
+setInterval(backupState, 60 * 60 * 1000).unref();
 // flush pending writes on shutdown
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { if (saveTimer) flushState(); process.exit(0); });
 

@@ -12,3 +12,6 @@ data/telemetry.json
 data/server.pid
 data/.welcomed
 *.tgz
+data/*.bak
+data/backups/
+data/state.json.*

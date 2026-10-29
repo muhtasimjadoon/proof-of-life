@@ -4,10 +4,10 @@ Proof of Life can send one small, counts-only heartbeat a week, so we can tell h
 
 ## How it is turned on and off
 
-- The terminal installer (`npx proof-of-life` or `node cli.mjs` in a clone) asks once: `Share usage counts? [y/N]`. Enter or anything but `y` means no. Without a terminal (scripts, CI) it never asks and stays off.
+- The terminal installer (`npx github:muhtasimjadoon/proof-of-life` or `node cli.mjs` in a clone) asks once: `Share usage counts? [y/N]`. Enter or anything but `y` means no. Without a terminal (scripts, CI) it never asks and stays off.
 - The Claude Code plugin has no terminal step, so the page asks instead: until you answer, Home shows **Share anonymous weekly usage counts?** with **Yes, share counts** and **No**. Either answer is stored and the question never comes back. The page can only do this from this machine (a same-origin request to `POST /api/telemetry`).
 - Change your answer any time, without touching your hooks:
-  - npx or plugin install: `npx proof-of-life telemetry on` or `npx proof-of-life telemetry off`
+  - npx or plugin install: `npx github:muhtasimjadoon/proof-of-life telemetry on` or `npx github:muhtasimjadoon/proof-of-life telemetry off`
   - git clone: `node cli.mjs telemetry on` or `node cli.mjs telemetry off`
   - or the Turn on / Turn off button under **How it works → Provenance**.
   `telemetry status` prints the current answer. (`node install.mjs --telemetry=on|off` still works in a clone, but it also rewrites your global hooks, so plugin users should not use it.)

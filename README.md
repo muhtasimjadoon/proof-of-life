@@ -2,6 +2,8 @@
 
 **A weekly report of what your Claude Code agents did, by type of work. Every run also hatches a creature, which is what keeps you looking.**
 
+![934 creatures, each hatched from a real Claude Code run](docs/collection.png)
+
 Each creature is a signed, tamper-evident record of one run: nobody can change a record later without it showing. It is your own record, not an audit.
 
 You give an agent a task and wait. When a run starts, an egg starts growing. When it ends, a creature hatches, shaped by what the agent really did. Once a week, **Share this week** saves one card: your runs and hours by type of work ([more below](#your-week-and-live-status)).
@@ -22,9 +24,9 @@ Needs Node 18+ and Claude Code on your own machine. No dependencies, no build st
 
 **npx (one command).** Adds four hooks to `~/.claude/settings.json` (backed up first), starts the server in the background and opens http://localhost:4855:
 ```bash
-npx proof-of-life              # remove: npx proof-of-life uninstall
+npx github:muhtasimjadoon/proof-of-life              # remove: npx github:muhtasimjadoon/proof-of-life uninstall
 ```
-After a reboot: `npx proof-of-life start`. Data lives in `~/.proof-of-life/data`, so updates never touch it.
+After a reboot: `npx github:muhtasimjadoon/proof-of-life start`. Data lives in `~/.proof-of-life/data`, so updates never touch it.
 
 **Claude Code plugin (no terminal, works in the Desktop Code tab).** In a session:
 ```
@@ -40,7 +42,7 @@ node cli.mjs                   # hooks + server + page; remove: node cli.mjs uni
 ```
 A clone keeps its data in `./data`. The old way still works: `node install.mjs`, then `node server.js`.
 
-Then use Claude Code as usual. `stop` and `start` work in every path (`npx proof-of-life stop`, `node cli.mjs start`); they only ever stop a server they started.
+Then use Claude Code as usual. `stop` and `start` work in every path (`npx github:muhtasimjadoon/proof-of-life stop`, `node cli.mjs start`); they only ever stop a server they started.
 
 **After you update the code, restart the server** (`node cli.mjs stop`, then `node cli.mjs start`; npx and the plugin restart their own server when the version changes). The page is read from disk, so it updates at once; the server only loads its code when it starts. If the two don't match, the page says so in a banner instead of quietly showing empty panels (`/api/version` reports the running build).
 
@@ -53,6 +55,17 @@ Everything runs on your machine. Your creatures live in `state.json` in your dat
 - The server listens on `127.0.0.1` only, and on loopback it only answers to a loopback `Host`, so a web page that rebinds its domain to your machine can't read or change anything. Requests that change state must be JSON and must come from the page itself or from a hook: a request from another site is refused. Set `POL_HOST=0.0.0.0` to share it; remote requests then need an operator token to read a collection.
 - The hooks time out in 1.5 seconds and always exit cleanly. They never slow down or break a session, even if the server is off.
 - **Usage stats are off unless you say yes.** The installer asks once (y/N). If you agree, the server (never the hooks) sends one counts-only heartbeat a week: a random install ID, app version, week, runs, active days and runs per type of work. No names, handles, prompts, paths or file contents. Exact schema and how to turn it off: [TELEMETRY.md](TELEMETRY.md).
+
+## Backups and recovery
+
+- `state.json` is written to a temp file, flushed to disk, then renamed, so a crash or power cut can't leave it half-written.
+- Every hour (and at every start) the server keeps a copy in `<data>/backups`, the last 48. Set `"backupDir"` in `config.json` (or `POL_BACKUP_DIR`) to keep a second set on another drive.
+- Lost it anyway? Your runs are still in Claude Code's own transcripts (`~/.claude/projects`). Stop the server, then:
+  ```bash
+  node scripts/recover-from-transcripts.mjs --since <last good date> --out runs.json
+  node server.js --recover runs.json
+  ```
+  Each turn goes through the same hatch code as a live run, at its own time, and is signed as usual. Rebuilt creatures are marked `recovered: "transcript"`. Run `--compare` first over a window you still have to check the match.
 
 ## Threat model
 
@@ -90,7 +103,7 @@ curl  http://localhost:4855/api/version                      # the running build
 
 - **Share this week** (Home, in *This week*) saves one PNG card of what your agents did this ISO week: runs and hours by type of work (non-code work first, Engineering last), your top creature, the week number and the total runs. It uses only your own runs; bred creatures are not runs, sessions left open are not counted as hours, and time a run spent waiting on you (a permission prompt or a question) is left out of its hours for runs hatched from v1.0 on. The "% not code" line counts only runs typed from what the agent did (tools, files, commands), the same rule as `scripts/stats.mjs`, and says how many runs that is. It only appears when at least half the week's runs were typed that way, so the card never shows a share that its own bars contradict. A week with no runs saves an honest empty card.
 - **Live status:** while a run is going, its egg and the top bar say *Working*. When Claude Code asks for permission or asks you a question, the `Notification` hook marks it *Needs your input* until the next prompt, the next finished subagent or the end of the run. When the run ends it shows *Done* for two minutes, with the creature it hatched. Only one word leaves the hook (permission, question or input), never the notice text.
-- **Already installed before this?** Re-run the installer once to add the `Notification` hook: `node cli.mjs` in a clone, or `npx proof-of-life`. The plugin picks it up on update.
+- **Already installed before this?** Re-run the installer once to add the `Notification` hook: `node cli.mjs` in a clone, or `npx github:muhtasimjadoon/proof-of-life`. The plugin picks it up on update.
 
 ## Options
 
@@ -100,12 +113,12 @@ curl  http://localhost:4855/api/version                      # the running build
 | `POL_DATA_DIR` | where creatures are stored (default `./data` in a git clone, `~/.proof-of-life/data` for npx and the plugin) |
 | `POL_HOME` | move `~/.proof-of-life` (the npx app copy and its data) |
 | `POL_SETTINGS` | install the hooks into another settings file (tests) |
-| `npx proof-of-life --no-open --no-start` | install without opening a browser or starting the server |
+| `npx github:muhtasimjadoon/proof-of-life --no-open --no-start` | install without opening a browser or starting the server |
 | `POL_HOST` | listen address (default `127.0.0.1`; `0.0.0.0` to share) |
 | `POL_SERVER`, `POL_TOKEN` | point the hooks at a hosted server instead of localhost |
 | `node server.js --samples` | add sample operators to explore the Board and cross-breeding |
 | `POL_TELEMETRY=off` | never send usage stats, whatever you answered at install ([TELEMETRY.md](TELEMETRY.md)) |
-| `npx proof-of-life telemetry on\|off\|status` | change your usage-stats answer without touching hooks (`node cli.mjs telemetry on\|off` in a clone, or the button under How it works → Provenance) |
+| `npx github:muhtasimjadoon/proof-of-life telemetry on\|off\|status` | change your usage-stats answer without touching hooks (`node cli.mjs telemetry on\|off` in a clone, or the button under How it works → Provenance) |
 | `node scripts/stats.mjs [state.json]` | share of your creatures by work type since 2026-10-09 (read-only; default: `state.json` in your data folder) |
 
 ## How it works
@@ -120,7 +133,7 @@ curl  http://localhost:4855/api/version                      # the running build
 | `skills.js` | skill curve, bands and xp formulas (shared with the browser as `/skills.js`) |
 | `public/variants.js` | the collectible look of every seed: colorways, patterns, accessories, faces, Shiny, growth, Dex slots |
 | `server.js` | zero-dependency server: signing, storage, API, UI |
-| `cli.mjs` | `npx proof-of-life`: install, start, stop, uninstall; `ensure` is the plugin's SessionStart hook |
+| `cli.mjs` | `npx github:muhtasimjadoon/proof-of-life`: install, start, stop, uninstall; `ensure` is the plugin's SessionStart hook |
 | `install.mjs` | adds or removes the four hooks in `~/.claude/settings.json` |
 | `paths.js` | where data lives for a clone vs an npm, npx or plugin copy |
 | `hooks/hooks.json`, `.claude-plugin/` | the Claude Code plugin and its marketplace entry |
